@@ -50,6 +50,65 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Return the options flow."""
         return FirewallaOptionsFlow(config_entry)
 
+    async def async_step_reauth(self, entry_data):
+        """Start the reauthentication flow."""
+        self.context["title_placeholders"] = {
+            "name": entry_data.get(CONF_NAME, "Firewalla")
+        }
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Handle reauthentication for an existing config entry."""
+        errors: dict[str, str] = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if entry is None:
+            return self.async_abort(reason="unknown")
+
+        if user_input is not None:
+            try:
+                normalized_base_url = normalize_base_url(user_input[CONF_BASE_URL])
+                validation_input = {
+                    **entry.data,
+                    CONF_BASE_URL: normalized_base_url,
+                    CONF_TOKEN: user_input[CONF_TOKEN],
+                    CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
+                }
+                await self._validate_input(normalized_base_url, validation_input)
+            except ValueError as err:
+                errors["base"] = str(err)
+            except FirewallaApiAuthError:
+                errors["base"] = "invalid_auth"
+            except FirewallaApiError:
+                errors["base"] = "cannot_connect"
+            else:
+                updated_data = {
+                    **entry.data,
+                    CONF_BASE_URL: normalized_base_url,
+                    CONF_TOKEN: user_input[CONF_TOKEN],
+                    CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
+                }
+                self.hass.config_entries.async_update_entry(entry, data=updated_data)
+                await self.hass.config_entries.async_reload(entry.entry_id)
+                return self.async_abort(reason="reauth_successful")
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_BASE_URL,
+                        default=entry.data.get(CONF_BASE_URL, ""),
+                    ): str,
+                    vol.Required(CONF_TOKEN, default=entry.data.get(CONF_TOKEN, "")): str,
+                    vol.Required(
+                        CONF_VERIFY_SSL,
+                        default=entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
+                    ): bool,
+                }
+            ),
+            errors=errors,
+        )
+
     async def async_step_user(self, user_input=None):
         """Handle the initial config step."""
         errors: dict[str, str] = {}

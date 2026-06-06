@@ -285,6 +285,100 @@ async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
     assert result["reason"] == "already_configured"
 
 
+async def test_reauth_flow_updates_existing_entry(hass) -> None:
+    """Test reauth updates credentials on an existing entry."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla",
+        data={
+            "name": "Firewalla",
+            CONF_BASE_URL: "https://old.firewalla.net",
+            "token": "old-token",
+            CONF_SCOPE_TYPE: SCOPE_GLOBAL,
+            CONF_SCAN_INTERVAL: 300,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
+            CONF_VERIFY_SSL: True,
+        },
+        unique_id="https://old.firewalla.net|global|global",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_REAUTH, "entry_id": entry.entry_id},
+        data=entry.data,
+    )
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+
+    with (
+        patch(
+            "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",
+            new=AsyncMock(),
+        ),
+        patch.object(hass.config_entries, "async_reload", new=AsyncMock()) as mock_reload,
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_BASE_URL: "https://new.firewalla.net",
+                "token": "new-token",
+                CONF_VERIFY_SSL: False,
+            },
+        )
+
+    updated = hass.config_entries.async_get_entry(entry.entry_id)
+    assert result["type"] is data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert updated
+    assert updated.data[CONF_BASE_URL] == "https://new.firewalla.net"
+    assert updated.data["token"] == "new-token"
+    assert updated.data[CONF_VERIFY_SSL] is False
+    mock_reload.assert_awaited_once_with(entry.entry_id)
+
+
+async def test_reauth_flow_handles_invalid_auth(hass) -> None:
+    """Test reauth surfaces invalid auth errors."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla",
+        data={
+            "name": "Firewalla",
+            CONF_BASE_URL: "https://old.firewalla.net",
+            "token": "old-token",
+            CONF_SCOPE_TYPE: SCOPE_GLOBAL,
+            CONF_SCAN_INTERVAL: 300,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
+            CONF_VERIFY_SSL: True,
+        },
+        unique_id="https://old.firewalla.net|global|global",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_REAUTH, "entry_id": entry.entry_id},
+        data=entry.data,
+    )
+
+    with patch(
+        "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",
+        new=AsyncMock(side_effect=FirewallaApiAuthError),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_BASE_URL: "https://new.firewalla.net",
+                "token": "new-token",
+                CONF_VERIFY_SSL: True,
+            },
+        )
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+    assert result["errors"] == {"base": "invalid_auth"}
+
+
 def test_build_schema_uses_defaults() -> None:
     """Test config flow schema defaults."""
     flow = FirewallaConfigFlow()

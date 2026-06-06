@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -309,6 +310,53 @@ async def test_coordinator_optional_endpoint_failure_is_non_fatal(hass) -> None:
     assert result["capabilities"]["top_stats"] is False
     assert result["endpoint_errors"]["stats:topBoxesByBlockedFlows"] == "http_403"
     assert result["bandwidth"]["download_bytes"] == 1_250_000
+
+
+@pytest.mark.asyncio
+async def test_coordinator_logs_endpoint_failure_once_and_recovery(hass, caplog) -> None:
+    """Test endpoint failures only log once until recovery."""
+
+    class EndpointClient(MockClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fail_statistics = True
+
+        async def async_get_statistics(
+            self, stats_type: str, *, group: str | None, limit: int
+        ) -> list[dict[str, object]]:
+            if self.fail_statistics:
+                raise FirewallaApiError("cannot_connect")
+            return await super().async_get_statistics(
+                stats_type, group=group, limit=limit
+            )
+
+    entry = SimpleNamespace(
+        data={"name": "Firewalla", "scan_interval": 300, CONF_SCOPE_TYPE: SCOPE_GLOBAL},
+        options={},
+    )
+    client = EndpointClient()
+    coordinator = FirewallaTrendsCoordinator(hass, entry, client)
+
+    caplog.set_level(logging.INFO)
+
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+    client.fail_statistics = False
+    await coordinator._async_update_data()
+
+    failure_logs = [
+        record
+        for record in caplog.records
+        if "endpoint stats:topBoxesByBlockedFlows failed" in record.getMessage()
+    ]
+    recovery_logs = [
+        record
+        for record in caplog.records
+        if "endpoint stats:topBoxesByBlockedFlows recovered" in record.getMessage()
+    ]
+
+    assert len(failure_logs) == 1
+    assert len(recovery_logs) == 1
 
 
 @pytest.mark.asyncio

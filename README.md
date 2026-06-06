@@ -64,6 +64,24 @@ During setup and updates, the integration records endpoint capabilities and degr
    - Scan interval
    - Whether SSL verification should be enabled
 
+## Configuration reference
+
+- `Name`: Display name used for the config entry and suggested entity IDs.
+- `Firewalla base URL`: The MSP endpoint URL for your tenant, such as `https://example.firewalla.net`.
+- `Personal access token`: Token used for all API requests.
+- `Scope type`: `global`, `group`, or `box`.
+- `Scope ID`: Required for `group` and `box` scopes. For box scope, this is the Firewalla `gid`.
+- `Scan interval`: Polling interval in seconds. Allowed range: `60` to `3600`.
+- `Traffic window`: Rolling grouped-flow window used for recent-volume and Mbps sensors. Allowed values: `1`, `5`, `15`, or `30` minutes.
+- `Verify SSL`: Enables TLS certificate validation for the MSP endpoint.
+
+## Options
+
+After setup, the integration options let you change:
+
+- `Scan interval`
+- `Traffic window`
+
 ## Notes
 
 - This integration uses config entries and is configured entirely in the UI.
@@ -73,6 +91,7 @@ During setup and updates, the integration records endpoint capabilities and degr
 - The legacy `*_last_5m` entity IDs are retained for compatibility, but they now represent the current recent-volume window exposed by the integration.
 - `Download Recent Volume` and `Upload Recent Volume` sensors are rolling byte totals over the configured recent traffic window, not instantaneous throughput. Their state is shown in `GB`, and the raw byte totals remain available in attributes like `raw_download_bytes` and `raw_upload_bytes`.
 - Check each sensor's `window_seconds` attribute for the exact rolling period used by the current version.
+- Check each sensor's `window_minutes` attribute for the configured rolling period in minutes.
 - The recent traffic window is configurable to `1`, `5`, `15`, or `30` minutes in the integration options.
 
 ## Capability diagnostics
@@ -86,6 +105,21 @@ The diagnostics payload includes:
 - the latest redacted coordinator data
 
 This makes it easier to understand why a given MSP tenant or scope exposes only a subset of sensors.
+
+## Troubleshooting
+
+- `invalid_auth` during setup or runtime:
+  Update the personal access token from the integration reauthentication flow when Home Assistant prompts for it.
+- `cannot_connect`:
+  Confirm the base URL is reachable from Home Assistant, the MSP endpoint is online, and any reverse proxy or firewall rules allow the request.
+- `unknown_box`:
+  The configured box `gid` does not exist in the tenant visible to the provided token.
+- Missing trend or top-stat sensors for a box scope:
+  This is expected. Box scope only exposes aggregate and per-network bandwidth sensors.
+- Missing some entity groups for a global or group scope:
+  The integration degrades gracefully when optional Firewalla endpoints return `403`, `404`, or other endpoint-specific failures. Check diagnostics for `capabilities` and `endpoint_errors`.
+- SSL verification failures:
+  If your MSP endpoint uses a private or invalid certificate, either fix the certificate chain or disable `Verify SSL` for that config entry.
 
 ## Sample dashboards
 
