@@ -33,6 +33,7 @@ from custom_components.firewalla.coordinator import (
     _compute_rate_mbps,
     _network_key,
     _scope_from_entry,
+    _traffic_window_minutes_from_entry,
 )
 
 
@@ -56,8 +57,6 @@ def test_helper_builders() -> None:
         SCOPE_GROUP,
         "legacy",
     )
-    from custom_components.firewalla.coordinator import _traffic_window_minutes_from_entry
-
     assert _traffic_window_minutes_from_entry(SimpleNamespace(data={}, options={})) == (
         DEFAULT_TRAFFIC_WINDOW_MINUTES
     )
