@@ -318,6 +318,7 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self.scope_type, self.scope_id = _scope_from_entry(entry)
         self.group = self.scope_id if self.scope_type == SCOPE_GROUP else None
         self.traffic_window_minutes = _traffic_window_minutes_from_entry(entry)
+        self._endpoint_available: dict[str, bool] = {}
 
         scan_seconds = entry.options.get(
             CONF_SCAN_INTERVAL,
@@ -333,19 +334,41 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
             update_interval=timedelta(seconds=int(scan_seconds)),
         )
 
+    def _update_endpoint_availability(
+        self,
+        endpoint: str,
+        available: bool,
+        error: str | None = None,
+    ) -> None:
+        """Track endpoint availability and only log state transitions."""
+        previous = self._endpoint_available.get(endpoint)
+        self._endpoint_available[endpoint] = available
+
+        if available:
+            if previous is False:
+                _LOGGER.info("Firewalla endpoint %s recovered", endpoint)
+            return
+
+        if previous is False:
+            return
+
+        if error in OPTIONAL_ENDPOINT_ERRORS:
+            _LOGGER.debug("Firewalla endpoint %s unavailable: %s", endpoint, error)
+        else:
+            _LOGGER.warning("Firewalla endpoint %s failed: %s", endpoint, error)
+
     async def _async_fetch_optional(self, endpoint: str, func, *args, **kwargs):
         """Fetch an optional endpoint and classify failures."""
         try:
-            return True, await func(*args, **kwargs), None
+            result = await func(*args, **kwargs)
         except FirewallaApiAuthError:
             raise
         except FirewallaApiError as err:
             error = str(err)
-            if error in OPTIONAL_ENDPOINT_ERRORS:
-                _LOGGER.debug("Firewalla endpoint %s unavailable: %s", endpoint, error)
-            else:
-                _LOGGER.warning("Firewalla endpoint %s failed: %s", endpoint, error)
+            self._update_endpoint_availability(endpoint, False, error)
             return False, None, error
+        self._update_endpoint_availability(endpoint, True)
+        return True, result, None
 
     async def _async_update_data(self) -> dict[str, object]:
         """Fetch Firewalla data with graceful degradation."""
@@ -507,9 +530,9 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                     "download_mbps": 0.0,
                     "upload_mbps": 0.0,
                     "flow_count": 0,
-                "window_seconds": window_seconds,
-                "window_minutes": self.traffic_window_minutes,
-            }
+                    "window_seconds": window_seconds,
+                    "window_minutes": self.traffic_window_minutes,
+                }
             )
             capabilities["bandwidth"] = capabilities["grouped_flows"]
 

@@ -166,6 +166,8 @@ _SOURCE_CAPABILITY = {
     "bandwidth": "bandwidth",
 }
 
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> None:
     """Set up Firewalla sensors."""
