@@ -8,6 +8,7 @@ from custom_components.firewalla.api import TrendPoint
 from custom_components.firewalla.const import SCOPE_GROUP
 from custom_components.firewalla.sensor import (
     SENSOR_DESCRIPTIONS,
+    FirewallaBoxBandwidthSensor,
     FirewallaNetworkBandwidthSensor,
     FirewallaTrendSensor,
     _bytes_to_gigabytes,
@@ -39,6 +40,7 @@ def _coordinator(scope_id: str | None = None) -> SimpleNamespace:
                 "simple_stats": True,
                 "top_stats": True,
                 "bandwidth": True,
+                "box_bandwidth": True,
                 "network_bandwidth": True,
             },
             "simple_stats": {
@@ -60,6 +62,21 @@ def _coordinator(scope_id: str | None = None) -> SimpleNamespace:
                 "flow_count": 2,
                 "window_minutes": 15,
                 "window_seconds": 900,
+            },
+            "box_bandwidth": {
+                "g1": {
+                    "gid": "g1",
+                    "name": "Branch Box",
+                    "model": "FW",
+                    "online": True,
+                    "download_mbps": 3.1,
+                    "upload_mbps": 1.1,
+                    "download_bytes": 200,
+                    "upload_bytes": 100,
+                    "flow_count": 4,
+                    "window_minutes": 15,
+                    "window_seconds": 900,
+                }
             },
             "trends": {
                 "flows": [
@@ -295,6 +312,50 @@ def test_network_bandwidth_sensor_handles_missing_network() -> None:
     assert sensor.extra_state_attributes["source"] == "grouped_flows_by_network"
 
 
+def test_box_bandwidth_sensor_value_and_attrs() -> None:
+    """Test per-box bandwidth sensors."""
+    entry = _entry()
+    coordinator = _coordinator()
+    sensor = FirewallaBoxBandwidthSensor(
+        coordinator,
+        entry,
+        "g1",
+        "Branch Box",
+        "download_mbps",
+        "Download Mbps",
+        "mdi:speedometer",
+        "Mbps",
+        None,
+    )
+
+    assert sensor.available is True
+    assert sensor.native_value == 3.1
+    assert sensor.extra_state_attributes["box_name"] == "Branch Box"
+    assert sensor.extra_state_attributes["source"] == "grouped_flows_by_box"
+    assert sensor.device_info["name"] == "Firewalla Branch Box"
+
+
+def test_box_bandwidth_sensor_handles_missing_box() -> None:
+    """Test per-box sensor returns safe defaults when data is missing."""
+    entry = _entry()
+    coordinator = _coordinator()
+    sensor = FirewallaBoxBandwidthSensor(
+        coordinator,
+        entry,
+        "missing",
+        "Missing Box",
+        "download_mbps",
+        "Download Mbps",
+        "mdi:speedometer",
+        "Mbps",
+        None,
+    )
+
+    assert sensor.native_value == 0
+    assert sensor.extra_state_attributes["box_gid"] == "missing"
+    assert sensor.extra_state_attributes["box_name"] == "Missing Box"
+
+
 async def test_async_setup_entry_adds_supported_base_and_network_entities() -> None:
     """Test sensor setup entity count respects capabilities."""
     entry = _entry()
@@ -307,7 +368,7 @@ async def test_async_setup_entry_adds_supported_base_and_network_entities() -> N
 
     await async_setup_entry(hass, entry, _add_entities)
 
-    assert len(added) == len(SENSOR_DESCRIPTIONS) + 4
+    assert len(added) == len(SENSOR_DESCRIPTIONS) + 4 + 4
 
 
 async def test_async_setup_entry_skips_unsupported_and_invalid_network_entities() -> None:
@@ -327,5 +388,5 @@ async def test_async_setup_entry_skips_unsupported_and_invalid_network_entities(
 
     await async_setup_entry(hass, entry, _add_entities)
 
-    expected = len(SENSOR_DESCRIPTIONS)
+    expected = len(SENSOR_DESCRIPTIONS) + 4
     assert len(added) == expected

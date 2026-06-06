@@ -32,6 +32,17 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+_RATE_LIMIT_BACKOFF_BASE = timedelta(minutes=1)
+_RATE_LIMIT_BACKOFF_MAX = timedelta(minutes=15)
+
+
+class _FirewallaRateLimitedError(Exception):
+    """Raised when the Firewalla API returns a rate-limit response."""
+
+    def __init__(self, endpoint: str) -> None:
+        """Initialize the error."""
+        self.endpoint = endpoint
+        super().__init__(endpoint)
 
 
 def _safe_int(value: object) -> int:
@@ -302,6 +313,61 @@ def _aggregate_bandwidth(
     }
 
 
+def _build_box_bandwidth(
+    recent_flows: list[dict[str, object]],
+    window_seconds: int,
+    window_minutes: int,
+    boxes_by_gid: dict[str, dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    """Build per-box bandwidth stats from recent grouped flows."""
+    box_bandwidth: dict[str, dict[str, object]] = {}
+
+    for item in recent_flows:
+        if item.get("block") is True or item.get("blocked") is True:
+            continue
+
+        gid = str(item.get("gid") or "").strip()
+        if not gid:
+            continue
+
+        download_bytes = max(_safe_int(item.get("download")), 0)
+        upload_bytes = max(_safe_int(item.get("upload")), 0)
+        flow_count = max(_safe_int(item.get("count")), 1)
+        box = boxes_by_gid.get(gid, {})
+        current = box_bandwidth.setdefault(
+            gid,
+            {
+                "gid": gid,
+                "name": str(box.get("name") or gid).strip() or gid,
+                "model": str(box.get("model") or "").strip() or None,
+                "group_id": str(box.get("group") or "").strip() or None,
+                "online": box.get("online"),
+                "download_bytes": 0,
+                "upload_bytes": 0,
+                "download_mbps": 0.0,
+                "upload_mbps": 0.0,
+                "flow_count": 0,
+                "window_seconds": window_seconds,
+                "window_minutes": window_minutes,
+            },
+        )
+        current["download_bytes"] = (
+            _safe_int(current.get("download_bytes")) + download_bytes
+        )
+        current["upload_bytes"] = _safe_int(current.get("upload_bytes")) + upload_bytes
+        current["flow_count"] = _safe_int(current.get("flow_count")) + flow_count
+        current["download_mbps"] = _compute_rate_mbps(
+            _safe_int(current.get("download_bytes")),
+            window_seconds,
+        )
+        current["upload_mbps"] = _compute_rate_mbps(
+            _safe_int(current.get("upload_bytes")),
+            window_seconds,
+        )
+
+    return box_bandwidth
+
+
 def _empty_payload(
     scope_type: str,
     scope_id: str | None,
@@ -329,8 +395,22 @@ def _empty_payload(
             "window_seconds": window_seconds,
             "window_minutes": window_minutes,
         },
+        "box_bandwidth": {},
         "network_bandwidth": {},
     }
+
+
+def _merge_endpoint_errors(
+    current_data: dict[str, object],
+    endpoint_errors: dict[str, str],
+) -> dict[str, object]:
+    """Return a copy of current data with updated endpoint error details."""
+    merged = dict(current_data)
+    current_errors = current_data.get("endpoint_errors", {})
+    if not isinstance(current_errors, dict):
+        current_errors = {}
+    merged["endpoint_errors"] = {**current_errors, **endpoint_errors}
+    return merged
 
 
 class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
@@ -351,6 +431,8 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self.group = self.scope_id if self.scope_type == SCOPE_GROUP else None
         self.traffic_window_minutes = _traffic_window_minutes_from_entry(entry)
         self._endpoint_available: dict[str, bool] = {}
+        self._rate_limited_until: datetime | None = None
+        self._rate_limit_attempts = 0
 
         scan_seconds = entry.options.get(
             CONF_SCAN_INTERVAL,
@@ -365,6 +447,29 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
             name=entry.data.get(CONF_NAME, DOMAIN),
             update_interval=timedelta(seconds=int(scan_seconds)),
         )
+
+    def _rate_limit_active(self, now: datetime) -> bool:
+        """Return whether a rate-limit backoff window is currently active."""
+        return self._rate_limited_until is not None and now < self._rate_limited_until
+
+    def _activate_rate_limit_backoff(self, endpoint: str, now: datetime) -> None:
+        """Increase the rate-limit backoff window."""
+        self._rate_limit_attempts += 1
+        delay_seconds = min(
+            int(_RATE_LIMIT_BACKOFF_BASE.total_seconds()) * (2 ** (self._rate_limit_attempts - 1)),
+            int(_RATE_LIMIT_BACKOFF_MAX.total_seconds()),
+        )
+        self._rate_limited_until = now + timedelta(seconds=delay_seconds)
+        _LOGGER.warning(
+            "Firewalla endpoint %s rate limited; backing off for %s seconds",
+            endpoint,
+            delay_seconds,
+        )
+
+    def _clear_rate_limit_backoff(self) -> None:
+        """Clear any active rate-limit backoff after a successful refresh."""
+        self._rate_limited_until = None
+        self._rate_limit_attempts = 0
 
     def _update_endpoint_availability(
         self,
@@ -398,29 +503,56 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         except FirewallaApiError as err:
             error = str(err)
             self._update_endpoint_availability(endpoint, False, error)
+            if error == "http_429":
+                self._activate_rate_limit_backoff(endpoint, datetime.now(UTC))
+                raise _FirewallaRateLimitedError(endpoint) from err
             return False, None, error
         self._update_endpoint_availability(endpoint, True)
         return True, result, None
 
     async def _async_update_data(self) -> dict[str, object]:
         """Fetch Firewalla data with graceful degradation."""
-        try:
-            now_ts = int(datetime.now(UTC).timestamp())
-            window_seconds = self.traffic_window_minutes * 60
-            window_start = now_ts - window_seconds
-            capabilities: dict[str, bool] = {
-                "boxes": False,
-                "trends": False,
-                "simple_stats": False,
-                "top_stats": False,
-                "devices": False,
-                "grouped_flows": False,
-                "bandwidth": False,
-                "network_bandwidth": False,
-            }
-            endpoint_errors: dict[str, str] = {}
+        now = datetime.now(UTC)
+        window_seconds = self.traffic_window_minutes * 60
+        capabilities: dict[str, bool] = {
+            "boxes": False,
+            "trends": False,
+            "simple_stats": False,
+            "top_stats": False,
+            "devices": False,
+            "grouped_flows": False,
+            "bandwidth": False,
+            "box_bandwidth": False,
+            "network_bandwidth": False,
+        }
+        endpoint_errors: dict[str, str] = {}
+        boxes: list[dict[str, object]] = []
 
-            boxes: list[dict[str, object]] = []
+        if self._rate_limit_active(now):
+            remaining_seconds = max(
+                int((self._rate_limited_until - now).total_seconds()),
+                1,
+            )
+            endpoint_errors["rate_limit"] = f"backoff_active_{remaining_seconds}s"
+            _LOGGER.debug(
+                "Firewalla rate-limit backoff active for %s more seconds",
+                remaining_seconds,
+            )
+            if isinstance(self.data, dict):
+                return _merge_endpoint_errors(self.data, endpoint_errors)
+            return _empty_payload(
+                self.scope_type,
+                self.scope_id,
+                boxes,
+                capabilities,
+                endpoint_errors,
+                window_seconds,
+                self.traffic_window_minutes,
+            )
+
+        try:
+            now_ts = int(now.timestamp())
+            window_start = now_ts - window_seconds
             success, payload, error = await self._async_fetch_optional(
                 "boxes",
                 self.client.async_get_boxes,
@@ -559,6 +691,17 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
 
             boxes_by_gid = _box_map(boxes)
             known_networks = _build_known_networks(devices, boxes_by_gid)
+            box_bandwidth = (
+                _build_box_bandwidth(
+                    recent_flows,
+                    window_seconds,
+                    self.traffic_window_minutes,
+                    boxes_by_gid,
+                )
+                if capabilities["grouped_flows"]
+                else {}
+            )
+            capabilities["box_bandwidth"] = bool(box_bandwidth)
             network_bandwidth = (
                 _build_network_bandwidth(
                     known_networks,
@@ -591,7 +734,7 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
             )
             capabilities["bandwidth"] = capabilities["grouped_flows"]
 
-            return {
+            result = {
                 "scope": _build_scope_info(self.scope_type, self.scope_id, boxes),
                 "capabilities": capabilities,
                 "endpoint_errors": endpoint_errors,
@@ -600,8 +743,24 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "simple_stats": simple_stats,
                 "top_stats": top_stats,
                 "bandwidth": bandwidth,
+                "box_bandwidth": box_bandwidth,
                 "network_bandwidth": network_bandwidth,
             }
+            self._clear_rate_limit_backoff()
+            return result
+        except _FirewallaRateLimitedError as err:
+            endpoint_errors[err.endpoint] = "http_429"
+            if isinstance(self.data, dict):
+                return _merge_endpoint_errors(self.data, endpoint_errors)
+            return _empty_payload(
+                self.scope_type,
+                self.scope_id,
+                boxes,
+                capabilities,
+                endpoint_errors,
+                window_seconds,
+                self.traffic_window_minutes,
+            )
         except FirewallaApiAuthError as err:
             raise ConfigEntryAuthFailed from err
         except FirewallaApiError as err:
