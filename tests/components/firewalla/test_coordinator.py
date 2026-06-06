@@ -111,6 +111,7 @@ def test_scope_info_and_bandwidth_helpers() -> None:
             {"network": "bad", "download": 100},
         ],
         5,
+        5,
         {
             "gid-1": {"gid": "gid-1", "name": "Box One", "model": "FW1"},
             "gid-2": {"gid": "gid-2", "name": "Box Two", "model": "FW2"},
@@ -121,7 +122,7 @@ def test_scope_info_and_bandwidth_helpers() -> None:
     assert network_bandwidth["gid-2::2"]["download_bytes"] == 0
     assert network_bandwidth["gid-2::2"]["flow_count"] == 1
 
-    aggregate = _aggregate_bandwidth(network_bandwidth, 5)
+    aggregate = _aggregate_bandwidth(network_bandwidth, 5, 5)
     assert aggregate["download_bytes"] == 1_250_000
     assert aggregate["upload_bytes"] == 750_000
     assert aggregate["download_mbps"] == 2.0
@@ -150,6 +151,7 @@ def test_network_bandwidth_merges_missing_gid_into_known_network() -> None:
                 "count": 2,
             }
         ],
+        5,
         5,
         {"gid-1": {"gid": "gid-1", "name": "Tudor Firewalla", "model": "FW"}},
     )
