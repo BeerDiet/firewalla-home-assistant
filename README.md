@@ -90,10 +90,16 @@ This makes it easier to understand why a given MSP tenant or scope exposes only 
 
 Example dashboards are included in [`examples/`](./examples):
 
-- [`dashboard-basic.yaml`](./examples/dashboard-basic.yaml) uses built-in Lovelace cards only.
-- [`dashboard-mini-graph.yaml`](./examples/dashboard-mini-graph.yaml) uses `mini-graph-card` for historical throughput charts.
+- [`dashboard-basic.yaml`](./examples/dashboard-basic.yaml) uses built-in Lovelace cards only and sticks to aggregate Internet sensors so it works across `global`, `group`, and `box` scopes.
+- [`dashboard-mini-graph.yaml`](./examples/dashboard-mini-graph.yaml) uses `mini-graph-card` for historical throughput charts and the same aggregate Internet sensors for maximum scope compatibility.
 
 These examples are intentionally generic and optional. They are not installed by the integration and can be adapted to your own dashboard structure.
+
+Notes for the examples:
+
+- `sensor.firewalla_rules` is `Rule Activity`, not your configured rule count. Use `sensor.firewalla_current_rules` when you want the current total.
+- The retained `sensor.firewalla_*_last_5m` entity IDs now represent the integration's rolling recent-volume window and should be labeled as `Volume (15m)` in dashboards.
+- Wired, wireless, and WireGuard sensors are scope-dependent. Add them only if your configured Firewalla scope actually exposes those entities.
 
 ## Development
 

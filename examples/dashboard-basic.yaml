@@ -3,48 +3,60 @@ views:
   - title: Overview
     path: overview
     icon: mdi:shield-home
+    type: sections
+    max_columns: 3
     sections:
-      - type: grid
+      - title: Activity
         cards:
-          - type: tile
-            entity: sensor.firewalla_blocked_flows
-            name: Blocked Flows
-          - type: tile
-            entity: sensor.firewalla_alarms
-            name: Alarms
-          - type: tile
-            entity: sensor.firewalla_rules
-            name: Rules
-          - type: tile
-            entity: sensor.firewalla_online_boxes
-            name: Online Boxes
-      - type: grid
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: tile
+                entity: sensor.firewalla_blocked_flows
+                name: Blocked Flows
+              - type: tile
+                entity: sensor.firewalla_alarms
+                name: Alarm Activity
+              - type: tile
+                entity: sensor.firewalla_rules
+                name: Rule Activity
+              - type: tile
+                entity: sensor.firewalla_current_rules
+                name: Current Rules
+              - type: tile
+                entity: sensor.firewalla_online_boxes
+                name: Online Boxes
+              - type: tile
+                entity: sensor.firewalla_offline_boxes
+                name: Offline Boxes
+      - title: Throughput
         cards:
-          - type: tile
-            entity: sensor.firewalla_download_mbps
-            name: Download
-          - type: tile
-            entity: sensor.firewalla_upload_mbps
-            name: Upload
-          - type: tile
-            entity: sensor.firewalla_download_last_5m
-            name: Download Last 5m
-          - type: tile
-            entity: sensor.firewalla_upload_last_5m
-            name: Upload Last 5m
-      - type: grid
-        cards:
-          - type: gauge
-            entity: sensor.firewalla_download_mbps
-            name: Download Mbps
-            min: 0
-            max: 1000
-          - type: gauge
-            entity: sensor.firewalla_upload_mbps
-            name: Upload Mbps
-            min: 0
-            max: 1000
-      - type: grid
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: tile
+                entity: sensor.firewalla_download_mbps
+                name: Internet Download
+              - type: tile
+                entity: sensor.firewalla_upload_mbps
+                name: Internet Upload
+              - type: tile
+                entity: sensor.firewalla_download_last_5m
+                name: Download Volume (15m)
+              - type: tile
+                entity: sensor.firewalla_upload_last_5m
+                name: Upload Volume (15m)
+          - type: history-graph
+            title: Internet Throughput
+            hours_to_show: 6
+            entities:
+              - entity: sensor.firewalla_download_mbps
+                name: Download
+              - entity: sensor.firewalla_upload_mbps
+                name: Upload
+      - title: Top Stats
         cards:
           - type: entities
             title: Top Stats
@@ -52,3 +64,9 @@ views:
               - entity: sensor.firewalla_top_box_blocked_flows
               - entity: sensor.firewalla_top_box_security_alarms
               - entity: sensor.firewalla_top_region_blocked_flows
+      - title: Optional Per-Network Sensors
+        cards:
+          - type: markdown
+            content: >
+              Add wired, wireless, or WireGuard cards only if your configured
+              Firewalla scope exposes those sensors.

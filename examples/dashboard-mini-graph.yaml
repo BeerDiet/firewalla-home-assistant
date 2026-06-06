@@ -4,6 +4,11 @@ views:
     path: traffic
     icon: mdi:speedometer
     cards:
+      - type: markdown
+        content: >
+          This example uses aggregate Internet sensors so it works across
+          global, group, and box scopes. Add per-network cards only when your
+          scope publishes wired, wireless, or WireGuard sensors.
       - type: custom:mini-graph-card
         name: Internet Traffic
         hours_to_show: 6
@@ -27,13 +32,20 @@ views:
         entities:
           - entity: sensor.firewalla_download_mbps
           - entity: sensor.firewalla_upload_mbps
+      - type: entities
+        title: Transfer Volume (15m)
+        entities:
           - entity: sensor.firewalla_download_last_5m
+            name: Download Volume (15m)
           - entity: sensor.firewalla_upload_last_5m
+            name: Upload Volume (15m)
       - type: entities
         title: Activity
         entities:
           - entity: sensor.firewalla_blocked_flows
           - entity: sensor.firewalla_alarms
           - entity: sensor.firewalla_rules
+            name: Rule Activity
+          - entity: sensor.firewalla_current_rules
           - entity: sensor.firewalla_online_boxes
           - entity: sensor.firewalla_offline_boxes
