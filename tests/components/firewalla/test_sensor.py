@@ -327,11 +327,5 @@ async def test_async_setup_entry_skips_unsupported_and_invalid_network_entities(
 
     await async_setup_entry(hass, entry, _add_entities)
 
-    expected = len(
-        [
-            description
-            for description in SENSOR_DESCRIPTIONS
-            if description.source != "top_stats"
-        ]
-    )
+    expected = len(SENSOR_DESCRIPTIONS)
     assert len(added) == expected

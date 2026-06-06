@@ -172,14 +172,9 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> None:
     """Set up Firewalla sensors."""
     coordinator = entry.runtime_data
-    capabilities = coordinator.data.get("capabilities", {})
-    if not isinstance(capabilities, dict):
-        capabilities = {}
-
     entities = [
         FirewallaTrendSensor(coordinator, entry, description)
         for description in SENSOR_DESCRIPTIONS
-        if capabilities.get(_SOURCE_CAPABILITY[description.source], False)
     ]
 
     network_bandwidth = coordinator.data.get("network_bandwidth", {})

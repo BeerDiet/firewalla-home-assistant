@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.firewalla.api import (
     FirewallaApiAuthError,
@@ -379,7 +378,7 @@ async def test_coordinator_update_auth_failure(hass) -> None:
 
 @pytest.mark.asyncio
 async def test_coordinator_update_transport_failure_when_no_endpoint_works(hass) -> None:
-    """Test coordinator fails when no usable endpoints remain."""
+    """Test temporary transport failures degrade instead of aborting setup."""
 
     class ErrorClient(MockClient):
         async def async_get_boxes(self, *, group: str | None = None):
@@ -408,5 +407,54 @@ async def test_coordinator_update_transport_failure_when_no_endpoint_works(hass)
     )
     coordinator = FirewallaTrendsCoordinator(hass, entry, ErrorClient())
 
-    with pytest.raises(UpdateFailed, match="No Firewalla endpoints available"):
-        await coordinator._async_update_data()
+    result = await coordinator._async_update_data()
+
+    assert result["capabilities"]["boxes"] is False
+    assert result["capabilities"]["bandwidth"] is False
+    assert result["endpoint_errors"]["boxes"] == "cannot_connect"
+    assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
+    assert result["network_bandwidth"] == {}
+
+
+@pytest.mark.asyncio
+async def test_coordinator_tolerates_temporary_global_rate_limit(hass) -> None:
+    """Test temporary API-wide rate limiting returns empty data instead of failing."""
+
+    class RateLimitedClient(MockClient):
+        async def async_get_boxes(self, *, group: str | None = None):
+            raise FirewallaApiError("http_429")
+
+        async def async_get_trend(self, trend_type: str, group: str | None):
+            raise FirewallaApiError("http_429")
+
+        async def async_get_simple_stats(self, group: str | None):
+            raise FirewallaApiError("http_429")
+
+        async def async_get_statistics(
+            self, stats_type: str, *, group: str | None, limit: int
+        ):
+            raise FirewallaApiError("http_429")
+
+        async def async_get_devices(
+            self, *, group: str | None = None, box: str | None = None
+        ):
+            raise FirewallaApiError("http_429")
+
+        async def async_get_grouped_flows(
+            self, *, query: str | None = None, group_by: str = "network", limit: int = 100
+        ):
+            raise FirewallaApiError("http_429")
+
+    entry = SimpleNamespace(
+        data={"name": DOMAIN, "scan_interval": 300, CONF_SCOPE_TYPE: SCOPE_GLOBAL},
+        options={},
+    )
+    coordinator = FirewallaTrendsCoordinator(hass, entry, RateLimitedClient())
+
+    result = await coordinator._async_update_data()
+
+    assert result["capabilities"]["boxes"] is False
+    assert result["capabilities"]["bandwidth"] is False
+    assert result["endpoint_errors"]["boxes"] == "http_429"
+    assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
+    assert result["network_bandwidth"] == {}
