@@ -16,8 +16,9 @@ from custom_components.firewalla.api import (
 from custom_components.firewalla.const import (
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
+    CONF_TRAFFIC_WINDOW_MINUTES,
+    DEFAULT_TRAFFIC_WINDOW_MINUTES,
     DOMAIN,
-    FLOW_WINDOW,
     SCOPE_BOX,
     SCOPE_GLOBAL,
     SCOPE_GROUP,
@@ -55,6 +56,17 @@ def test_helper_builders() -> None:
         SCOPE_GROUP,
         "legacy",
     )
+    from custom_components.firewalla.coordinator import _traffic_window_minutes_from_entry
+
+    assert _traffic_window_minutes_from_entry(SimpleNamespace(data={}, options={})) == (
+        DEFAULT_TRAFFIC_WINDOW_MINUTES
+    )
+    assert _traffic_window_minutes_from_entry(
+        SimpleNamespace(data={CONF_TRAFFIC_WINDOW_MINUTES: 5}, options={})
+    ) == 5
+    assert _traffic_window_minutes_from_entry(
+        SimpleNamespace(data={}, options={CONF_TRAFFIC_WINDOW_MINUTES: 30})
+    ) == 30
 
 
 def test_scope_info_and_bandwidth_helpers() -> None:
@@ -214,11 +226,12 @@ async def test_coordinator_update_success_global_scope(hass) -> None:
     result = await coordinator._async_update_data()
 
     expected_download_mbps = round(
-        (1_250_000 * 8) / int(FLOW_WINDOW.total_seconds()) / 1_000_000, 3
+        (1_250_000 * 8) / (DEFAULT_TRAFFIC_WINDOW_MINUTES * 60) / 1_000_000, 3
     )
     assert sorted(result["trends"].keys()) == ["alarms", "flows", "rules"]
     assert result["simple_stats"]["onlineBoxes"] == 3
     assert result["bandwidth"]["download_mbps"] == expected_download_mbps
+    assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
     assert result["network_bandwidth"]["gid-1::1"]["name"] == "LAN"
     assert result["bandwidth"]["flow_count"] == 2
     assert result["capabilities"]["top_stats"] is True
@@ -235,6 +248,7 @@ async def test_coordinator_box_scope_degrades_gracefully(hass) -> None:
             "scan_interval": 300,
             CONF_SCOPE_TYPE: SCOPE_BOX,
             CONF_SCOPE_ID: "gid-1",
+            CONF_TRAFFIC_WINDOW_MINUTES: 5,
         },
         options={},
     )
@@ -249,6 +263,7 @@ async def test_coordinator_box_scope_degrades_gracefully(hass) -> None:
     assert result["endpoint_errors"]["trends"] == "unsupported_scope_box"
     assert client.device_kwargs == [{"group": None, "box": "gid-1"}]
     assert client.grouped_flow_queries[0].startswith("box.id:gid-1 ")
+    assert result["bandwidth"]["window_minutes"] == 5
 
 
 @pytest.mark.asyncio
@@ -262,7 +277,7 @@ async def test_coordinator_group_scope_uses_group_filters(hass) -> None:
             CONF_SCOPE_TYPE: SCOPE_GROUP,
             CONF_SCOPE_ID: "branch",
         },
-        options={},
+        options={CONF_TRAFFIC_WINDOW_MINUTES: 30},
     )
     coordinator = FirewallaTrendsCoordinator(hass, entry, client)
     await coordinator._async_update_data()
@@ -270,6 +285,7 @@ async def test_coordinator_group_scope_uses_group_filters(hass) -> None:
     assert client.box_group_filters == ["branch"]
     assert client.device_kwargs == [{"group": "branch", "box": None}]
     assert client.grouped_flow_queries[0].startswith("box.group.id:branch ")
+    assert coordinator.traffic_window_minutes == 30
 
 
 @pytest.mark.asyncio

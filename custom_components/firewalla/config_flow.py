@@ -22,14 +22,17 @@ from .const import (
     CONF_SCAN_INTERVAL,
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
+    CONF_TRAFFIC_WINDOW_MINUTES,
     CONF_VERIFY_SSL,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_TRAFFIC_WINDOW_MINUTES,
     DEFAULT_VERIFY_SSL,
     DOMAIN,
     SCOPE_BOX,
     SCOPE_GLOBAL,
     SCOPE_GROUP,
     SCOPE_TYPES,
+    TRAFFIC_WINDOW_MINUTES_OPTIONS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -172,6 +175,13 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         int(DEFAULT_SCAN_INTERVAL.total_seconds()),
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=60, max=3600)),
+                vol.Required(
+                    CONF_TRAFFIC_WINDOW_MINUTES,
+                    default=user_input.get(
+                        CONF_TRAFFIC_WINDOW_MINUTES,
+                        DEFAULT_TRAFFIC_WINDOW_MINUTES,
+                    ),
+                ): vol.In(TRAFFIC_WINDOW_MINUTES_OPTIONS),
                 vol.Optional(
                     CONF_VERIFY_SSL,
                     default=user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
@@ -199,6 +209,13 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                 int(DEFAULT_SCAN_INTERVAL.total_seconds()),
             ),
         )
+        current_window = self._config_entry.options.get(
+            CONF_TRAFFIC_WINDOW_MINUTES,
+            self._config_entry.data.get(
+                CONF_TRAFFIC_WINDOW_MINUTES,
+                DEFAULT_TRAFFIC_WINDOW_MINUTES,
+            ),
+        )
 
         return self.async_show_form(
             step_id="init",
@@ -206,7 +223,10 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                 {
                     vol.Optional(CONF_SCAN_INTERVAL, default=current_scan): vol.All(
                         vol.Coerce(int), vol.Range(min=60, max=3600)
-                    )
+                    ),
+                    vol.Required(
+                        CONF_TRAFFIC_WINDOW_MINUTES, default=current_window
+                    ): vol.In(TRAFFIC_WINDOW_MINUTES_OPTIONS),
                 }
             ),
         )

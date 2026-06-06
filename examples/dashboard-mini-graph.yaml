@@ -33,12 +33,12 @@ views:
           - entity: sensor.firewalla_global_msp_download_mbps
           - entity: sensor.firewalla_global_msp_upload_mbps
       - type: entities
-        title: Transfer Volume (15m)
+        title: Transfer Volume
         entities:
-          - entity: sensor.firewalla_global_msp_download_volume_15m
-            name: Download Volume (15m)
-          - entity: sensor.firewalla_global_msp_upload_volume_15m
-            name: Upload Volume (15m)
+          - entity: sensor.firewalla_global_msp_download_recent_volume
+            name: Download Recent Volume
+          - entity: sensor.firewalla_global_msp_upload_recent_volume
+            name: Upload Recent Volume
       - type: entities
         title: Activity
         entities:

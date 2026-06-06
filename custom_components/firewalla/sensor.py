@@ -119,7 +119,7 @@ SENSOR_DESCRIPTIONS: tuple[FirewallaTrendSensorDescription, ...] = (
     ),
     FirewallaTrendSensorDescription(
         key="download_last_5m",
-        name="Download Volume (15m)",
+        name="Download Recent Volume",
         icon="mdi:download-network-outline",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -129,7 +129,7 @@ SENSOR_DESCRIPTIONS: tuple[FirewallaTrendSensorDescription, ...] = (
     ),
     FirewallaTrendSensorDescription(
         key="upload_last_5m",
-        name="Upload Volume (15m)",
+        name="Upload Recent Volume",
         icon="mdi:upload-network-outline",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -203,14 +203,14 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
                 for metric_key, metric_name, icon, unit, device_class in (
                     (
                         "download_bytes",
-                        "Download Volume (15m)",
+                        "Download Recent Volume",
                         "mdi:download-network-outline",
                         UnitOfInformation.GIGABYTES,
                         SensorDeviceClass.DATA_SIZE,
                     ),
                     (
                         "upload_bytes",
-                        "Upload Volume (15m)",
+                        "Upload Recent Volume",
                         "mdi:upload-network-outline",
                         UnitOfInformation.GIGABYTES,
                         SensorDeviceClass.DATA_SIZE,
@@ -399,6 +399,7 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
                 "source": "grouped_flows",
                 "raw_download_bytes": bandwidth.get("download_bytes"),
                 "raw_upload_bytes": bandwidth.get("upload_bytes"),
+                "window_minutes": bandwidth.get("window_minutes"),
                 "window_seconds": bandwidth.get("window_seconds"),
                 "flow_count": bandwidth.get("flow_count"),
                 **attrs,
@@ -517,6 +518,7 @@ class FirewallaNetworkBandwidthSensor(FirewallaBaseSensor):
             "raw_download_bytes": network.get("download_bytes"),
             "raw_upload_bytes": network.get("upload_bytes"),
             "flow_count": network.get("flow_count"),
+            "window_minutes": network.get("window_minutes"),
             "window_seconds": network.get("window_seconds"),
             **attrs,
         }

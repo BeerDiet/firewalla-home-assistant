@@ -12,6 +12,7 @@
           "scope_type": "Scope type",
           "scope_id": "Scope ID",
           "scan_interval": "Scan interval (seconds)",
+          "traffic_window_minutes": "Traffic window (minutes)",
           "verify_ssl": "Verify SSL certificate"
         }
       }
@@ -29,7 +30,8 @@
       "init": {
         "title": "Firewalla Options",
         "data": {
-          "scan_interval": "Scan interval (seconds)"
+          "scan_interval": "Scan interval (seconds)",
+          "traffic_window_minutes": "Traffic window (minutes)"
         }
       }
     }

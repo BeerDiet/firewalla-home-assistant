@@ -21,6 +21,7 @@ CONF_GROUP = "group"
 CONF_SCOPE_ID = "scope_id"
 CONF_SCOPE_TYPE = "scope_type"
 CONF_TOKEN = "token"
+CONF_TRAFFIC_WINDOW_MINUTES = "traffic_window_minutes"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_SCAN_INTERVAL = "scan_interval"
 
@@ -33,7 +34,8 @@ DEFAULT_SCAN_INTERVAL = timedelta(minutes=1)
 DEFAULT_VERIFY_SSL = True
 DEFAULT_RECENT_POINTS = 7
 DEFAULT_STATS_LIMIT = 5
-FLOW_WINDOW = timedelta(minutes=15)
+DEFAULT_TRAFFIC_WINDOW_MINUTES: Final = 15
+TRAFFIC_WINDOW_MINUTES_OPTIONS: Final = (1, 5, 15, 30)
 
 OPTIONAL_ENDPOINT_ERRORS: Final = frozenset({"http_400", "http_403", "http_404"})
 

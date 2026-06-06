@@ -17,7 +17,9 @@ from custom_components.firewalla.const import (
     CONF_SCAN_INTERVAL,
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
+    CONF_TRAFFIC_WINDOW_MINUTES,
     CONF_VERIFY_SSL,
+    DEFAULT_TRAFFIC_WINDOW_MINUTES,
     DOMAIN,
     SCOPE_BOX,
     SCOPE_GLOBAL,
@@ -45,6 +47,7 @@ async def test_user_flow_creates_global_entry(hass) -> None:
                 CONF_SCOPE_TYPE: SCOPE_GLOBAL,
                 CONF_SCOPE_ID: "",
                 CONF_SCAN_INTERVAL: 300,
+                CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
         )
@@ -74,6 +77,7 @@ async def test_user_flow_creates_group_entry_with_generated_title(hass) -> None:
                 CONF_SCOPE_TYPE: SCOPE_GROUP,
                 CONF_SCOPE_ID: "  branch-office  ",
                 CONF_SCAN_INTERVAL: 300,
+                CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
         )
@@ -103,6 +107,7 @@ async def test_user_flow_creates_box_entry(hass) -> None:
                 CONF_SCOPE_TYPE: SCOPE_BOX,
                 CONF_SCOPE_ID: "gid-1",
                 CONF_SCAN_INTERVAL: 300,
+                CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
         )
@@ -131,6 +136,7 @@ async def test_user_flow_invalid_auth(hass) -> None:
                 CONF_SCOPE_TYPE: SCOPE_GLOBAL,
                 CONF_SCOPE_ID: "",
                 CONF_SCAN_INTERVAL: 300,
+                CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
         )
@@ -153,6 +159,7 @@ async def test_user_flow_invalid_url(hass) -> None:
             CONF_SCOPE_TYPE: SCOPE_GLOBAL,
             CONF_SCOPE_ID: "",
             CONF_SCAN_INTERVAL: 300,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
             CONF_VERIFY_SSL: True,
         },
     )
@@ -179,6 +186,7 @@ async def test_user_flow_cannot_connect(hass) -> None:
                 CONF_SCOPE_TYPE: SCOPE_GLOBAL,
                 CONF_SCOPE_ID: "",
                 CONF_SCAN_INTERVAL: 300,
+                CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
         )
@@ -201,6 +209,7 @@ async def test_user_flow_requires_scope_id_for_non_global_scope(hass) -> None:
             CONF_SCOPE_TYPE: SCOPE_GROUP,
             CONF_SCOPE_ID: "",
             CONF_SCAN_INTERVAL: 300,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
             CONF_VERIFY_SSL: True,
         },
     )
@@ -213,8 +222,8 @@ async def test_options_flow_uses_current_scan_interval(hass) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Firewalla",
-        data={CONF_SCAN_INTERVAL: 120},
-        options={CONF_SCAN_INTERVAL: 240},
+        data={CONF_SCAN_INTERVAL: 120, CONF_TRAFFIC_WINDOW_MINUTES: 15},
+        options={CONF_SCAN_INTERVAL: 240, CONF_TRAFFIC_WINDOW_MINUTES: 5},
     )
     entry.add_to_hass(hass)
 
@@ -222,10 +231,13 @@ async def test_options_flow_uses_current_scan_interval(hass) -> None:
     assert result["type"] is data_entry_flow.FlowResultType.FORM
 
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_SCAN_INTERVAL: 300}
+        result["flow_id"], {CONF_SCAN_INTERVAL: 300, CONF_TRAFFIC_WINDOW_MINUTES: 30}
     )
     assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["data"] == {CONF_SCAN_INTERVAL: 300}
+    assert result["data"] == {
+        CONF_SCAN_INTERVAL: 300,
+        CONF_TRAFFIC_WINDOW_MINUTES: 30,
+    }
 
 
 async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
@@ -241,6 +253,7 @@ async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
             CONF_SCOPE_TYPE: SCOPE_GROUP,
             CONF_SCOPE_ID: "branch-office",
             CONF_SCAN_INTERVAL: 300,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
             CONF_VERIFY_SSL: True,
         },
     )
@@ -263,6 +276,7 @@ async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
                 CONF_SCOPE_TYPE: SCOPE_GROUP,
                 CONF_SCOPE_ID: "branch-office",
                 CONF_SCAN_INTERVAL: 300,
+                CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
         )
@@ -282,6 +296,7 @@ def test_build_schema_uses_defaults() -> None:
     assert serialized[CONF_BASE_URL] == "https://dn-knzvvk.firewalla.net"
     assert serialized[CONF_SCOPE_TYPE] == SCOPE_GLOBAL
     assert serialized[CONF_SCAN_INTERVAL] == 60
+    assert serialized[CONF_TRAFFIC_WINDOW_MINUTES] == DEFAULT_TRAFFIC_WINDOW_MINUTES
     assert serialized[CONF_VERIFY_SSL] is True
 
 

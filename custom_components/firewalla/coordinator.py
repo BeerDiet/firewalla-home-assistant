@@ -17,10 +17,11 @@ from .const import (
     CONF_SCAN_INTERVAL,
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
+    CONF_TRAFFIC_WINDOW_MINUTES,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_STATS_LIMIT,
+    DEFAULT_TRAFFIC_WINDOW_MINUTES,
     DOMAIN,
-    FLOW_WINDOW,
     OPTIONAL_ENDPOINT_ERRORS,
     SCOPE_BOX,
     SCOPE_GLOBAL,
@@ -63,6 +64,18 @@ def _scope_from_entry(entry: ConfigEntry) -> tuple[str, str | None]:
     if legacy_group:
         return SCOPE_GROUP, legacy_group
     return SCOPE_GLOBAL, None
+
+
+def _traffic_window_minutes_from_entry(entry: ConfigEntry) -> int:
+    """Resolve the configured recent-traffic window in minutes."""
+    value = entry.options.get(
+        CONF_TRAFFIC_WINDOW_MINUTES,
+        entry.data.get(CONF_TRAFFIC_WINDOW_MINUTES, DEFAULT_TRAFFIC_WINDOW_MINUTES),
+    )
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_TRAFFIC_WINDOW_MINUTES
 
 
 def _box_map(boxes: list[dict[str, object]]) -> dict[str, dict[str, object]]:
@@ -298,6 +311,7 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self.client = client
         self.scope_type, self.scope_id = _scope_from_entry(entry)
         self.group = self.scope_id if self.scope_type == SCOPE_GROUP else None
+        self.traffic_window_minutes = _traffic_window_minutes_from_entry(entry)
 
         scan_seconds = entry.options.get(
             CONF_SCAN_INTERVAL,
@@ -331,7 +345,7 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         """Fetch Firewalla data with graceful degradation."""
         try:
             now_ts = int(datetime.now(UTC).timestamp())
-            window_seconds = int(FLOW_WINDOW.total_seconds())
+            window_seconds = self.traffic_window_minutes * 60
             window_start = now_ts - window_seconds
             capabilities: dict[str, bool] = {
                 "boxes": False,
@@ -482,8 +496,9 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                     "download_mbps": 0.0,
                     "upload_mbps": 0.0,
                     "flow_count": 0,
-                    "window_seconds": window_seconds,
-                }
+                "window_seconds": window_seconds,
+                "window_minutes": self.traffic_window_minutes,
+            }
             )
             capabilities["bandwidth"] = capabilities["grouped_flows"]
 

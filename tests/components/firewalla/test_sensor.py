@@ -58,6 +58,7 @@ def _coordinator(scope_id: str | None = None) -> SimpleNamespace:
                 "download_bytes": 10,
                 "upload_bytes": 11,
                 "flow_count": 2,
+                "window_minutes": 15,
                 "window_seconds": 900,
             },
             "trends": {
@@ -81,6 +82,7 @@ def _coordinator(scope_id: str | None = None) -> SimpleNamespace:
                     "download_bytes": 100,
                     "upload_bytes": 50,
                     "flow_count": 4,
+                    "window_minutes": 15,
                     "window_seconds": 900,
                 }
             },
@@ -189,6 +191,7 @@ def test_trend_sensor_formats_recent_volume_in_gigabytes() -> None:
 
     assert sensor.native_value == 1.25
     assert sensor.extra_state_attributes["raw_download_bytes"] == 1_246_400_717
+    assert sensor.extra_state_attributes["window_minutes"] == 15
     assert sensor.extra_state_attributes["window_seconds"] == 900
 
 
@@ -259,7 +262,7 @@ def test_network_bandwidth_volume_sensor_formats_gigabytes() -> None:
         "g1::net1",
         "Main LAN",
         "download_bytes",
-        "Download Volume (15m)",
+        "Download Recent Volume",
         "mdi:download-network-outline",
         "GB",
         None,
@@ -267,6 +270,7 @@ def test_network_bandwidth_volume_sensor_formats_gigabytes() -> None:
 
     assert sensor.native_value == 1.25
     assert sensor.extra_state_attributes["raw_download_bytes"] == 1_246_400_717
+    assert sensor.extra_state_attributes["window_minutes"] == 15
 
 
 def test_network_bandwidth_sensor_handles_missing_network() -> None:

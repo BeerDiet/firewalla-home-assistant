@@ -71,8 +71,9 @@ During setup and updates, the integration records endpoint capabilities and degr
 - Per-network bandwidth sensors are created dynamically from network data returned by the API.
 - Aggregate and per-network throughput sensors are derived from grouped flow data over the integration's recent traffic window.
 - The legacy `*_last_5m` entity IDs are retained for compatibility, but they now represent the current recent-volume window exposed by the integration.
-- `Download Volume (15m)` and `Upload Volume (15m)` sensors are rolling byte totals over the recent traffic window, not instantaneous throughput. Their state is shown in `GB`, and the raw byte totals remain available in attributes like `raw_download_bytes` and `raw_upload_bytes`.
+- `Download Recent Volume` and `Upload Recent Volume` sensors are rolling byte totals over the configured recent traffic window, not instantaneous throughput. Their state is shown in `GB`, and the raw byte totals remain available in attributes like `raw_download_bytes` and `raw_upload_bytes`.
 - Check each sensor's `window_seconds` attribute for the exact rolling period used by the current version.
+- The recent traffic window is configurable to `1`, `5`, `15`, or `30` minutes in the integration options.
 
 ## Capability diagnostics
 
@@ -97,9 +98,9 @@ These examples are intentionally generic and optional. They are not installed by
 
 Notes for the examples:
 
-- The example entity IDs assume a global-scope entry named `Firewalla`, which produces entities like `sensor.firewalla_global_msp_download_mbps`. If you use a different title or scope, adapt the entity IDs to the names Home Assistant creates for your entry.
+- The example entity IDs assume a global-scope entry named `Firewalla`, which produces entities like `sensor.firewalla_global_msp_download_mbps` and `sensor.firewalla_global_msp_download_recent_volume`. If you use a different title or scope, adapt the entity IDs to the names Home Assistant creates for your entry.
 - `sensor.firewalla_global_msp_rule_activity` is recent `Rule Activity`, not your configured rule count. Use `sensor.firewalla_global_msp_current_rules` when you want the current total.
-- Recent-volume entities now use names like `sensor.firewalla_global_msp_download_volume_15m` and should be labeled as `Volume (15m)` in dashboards.
+- Recent-volume entities should be labeled generically as `Recent Volume`, with the active range read from each entity's `window_minutes` attribute or from your configured integration option.
 - Wired, wireless, and WireGuard sensors are scope-dependent. Add them only if your configured Firewalla scope actually exposes those entities.
 
 ## Development
