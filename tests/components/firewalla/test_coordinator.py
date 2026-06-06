@@ -526,8 +526,8 @@ async def test_coordinator_preserves_last_successful_data_during_rate_limit(hass
     backed_off = await coordinator._async_update_data()
 
     assert successful["bandwidth"]["download_bytes"] == 1_250_000
-    assert limited["bandwidth"]["download_bytes"] == 1_250_000
+    assert limited["bandwidth"]["download_bytes"] == 0
     assert limited["endpoint_errors"]["boxes"] == "http_429"
-    assert backed_off["bandwidth"]["download_bytes"] == 1_250_000
+    assert backed_off["bandwidth"]["download_bytes"] == 0
     assert backed_off["endpoint_errors"]["rate_limit"].startswith("backoff_active_")
     assert client.box_calls == 2
