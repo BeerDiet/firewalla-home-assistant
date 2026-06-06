@@ -6,7 +6,11 @@
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/BeerDiet/firewalla-home-assistant/issues",
-  "loggers": ["custom_components.firewalla"],
-  "codeowners": ["@KenCote"],
-  "version": "0.2.0"
+  "loggers": [
+    "custom_components.firewalla"
+  ],
+  "codeowners": [
+    "@KenCote"
+  ],
+  "version": "0.4.1"
 }
