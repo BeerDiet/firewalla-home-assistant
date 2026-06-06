@@ -26,6 +26,7 @@ from .const import (
     SCOPE_BOX,
     SCOPE_GLOBAL,
     SCOPE_GROUP,
+    TEMPORARY_ENDPOINT_ERRORS,
     TOP_STAT_TYPES,
     TREND_TYPES,
 )
@@ -301,6 +302,37 @@ def _aggregate_bandwidth(
     }
 
 
+def _empty_payload(
+    scope_type: str,
+    scope_id: str | None,
+    boxes: list[dict[str, object]],
+    capabilities: dict[str, bool],
+    endpoint_errors: dict[str, str],
+    window_seconds: int,
+    window_minutes: int,
+) -> dict[str, object]:
+    """Build an empty coordinator payload for degraded startup/update states."""
+    return {
+        "scope": _build_scope_info(scope_type, scope_id, boxes),
+        "capabilities": capabilities,
+        "endpoint_errors": endpoint_errors,
+        "boxes": boxes,
+        "trends": {},
+        "simple_stats": {},
+        "top_stats": {},
+        "bandwidth": {
+            "download_bytes": 0,
+            "upload_bytes": 0,
+            "download_mbps": 0.0,
+            "upload_mbps": 0.0,
+            "flow_count": 0,
+            "window_seconds": window_seconds,
+            "window_minutes": window_minutes,
+        },
+        "network_bandwidth": {},
+    }
+
+
 class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
     """Coordinate Firewalla polling."""
 
@@ -496,6 +528,29 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
 
             if not any(capabilities.values()):
                 if endpoint_errors:
+                    if all(
+                        error in TEMPORARY_ENDPOINT_ERRORS
+                        for error in endpoint_errors.values()
+                        if error != "unsupported_scope_box"
+                    ):
+                        _LOGGER.warning(
+                            "Firewalla API temporarily unavailable during refresh: %s",
+                            ", ".join(
+                                sorted(
+                                    f"{key}={value}"
+                                    for key, value in endpoint_errors.items()
+                                )
+                            ),
+                        )
+                        return _empty_payload(
+                            self.scope_type,
+                            self.scope_id,
+                            boxes,
+                            capabilities,
+                            endpoint_errors,
+                            window_seconds,
+                            self.traffic_window_minutes,
+                        )
                     raise UpdateFailed(
                         "No Firewalla endpoints available: "
                         + ", ".join(sorted(f"{k}={v}" for k, v in endpoint_errors.items()))

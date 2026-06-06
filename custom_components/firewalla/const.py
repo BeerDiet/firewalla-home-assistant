@@ -38,6 +38,7 @@ DEFAULT_TRAFFIC_WINDOW_MINUTES: Final = 15
 TRAFFIC_WINDOW_MINUTES_OPTIONS: Final = (1, 5, 15, 30)
 
 OPTIONAL_ENDPOINT_ERRORS: Final = frozenset({"http_400", "http_403", "http_404"})
+TEMPORARY_ENDPOINT_ERRORS: Final = frozenset({"cannot_connect", "http_429"})
 
 PLATFORMS: Final = [Platform.SENSOR]
 
