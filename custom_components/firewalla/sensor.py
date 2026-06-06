@@ -167,6 +167,36 @@ _SOURCE_CAPABILITY = {
 }
 
 PARALLEL_UPDATES = 0
+_BANDWIDTH_SENSOR_METRICS = (
+    (
+        "download_bytes",
+        "Download Recent Volume",
+        "mdi:download-network-outline",
+        UnitOfInformation.GIGABYTES,
+        SensorDeviceClass.DATA_SIZE,
+    ),
+    (
+        "upload_bytes",
+        "Upload Recent Volume",
+        "mdi:upload-network-outline",
+        UnitOfInformation.GIGABYTES,
+        SensorDeviceClass.DATA_SIZE,
+    ),
+    (
+        "download_mbps",
+        "Download Mbps",
+        "mdi:speedometer",
+        UnitOfDataRate.MEGABITS_PER_SECOND,
+        SensorDeviceClass.DATA_RATE,
+    ),
+    (
+        "upload_mbps",
+        "Upload Mbps",
+        "mdi:speedometer-medium",
+        UnitOfDataRate.MEGABITS_PER_SECOND,
+        SensorDeviceClass.DATA_RATE,
+    ),
+)
 
 
 async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> None:
@@ -176,6 +206,29 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
         FirewallaTrendSensor(coordinator, entry, description)
         for description in SENSOR_DESCRIPTIONS
     ]
+
+    box_bandwidth = coordinator.data.get("box_bandwidth", {})
+    if isinstance(box_bandwidth, dict):
+        for box_gid, box in box_bandwidth.items():
+            if not isinstance(box, dict):
+                continue
+            box_name = str(box.get("name") or "").strip()
+            if not box_gid or not box_name:
+                continue
+            entities.extend(
+                FirewallaBoxBandwidthSensor(
+                    coordinator,
+                    entry,
+                    box_gid,
+                    box_name,
+                    metric_key,
+                    metric_name,
+                    icon,
+                    unit,
+                    device_class,
+                )
+                for metric_key, metric_name, icon, unit, device_class in _BANDWIDTH_SENSOR_METRICS
+            )
 
     network_bandwidth = coordinator.data.get("network_bandwidth", {})
     if isinstance(network_bandwidth, dict):
@@ -197,36 +250,7 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
                     unit,
                     device_class,
                 )
-                for metric_key, metric_name, icon, unit, device_class in (
-                    (
-                        "download_bytes",
-                        "Download Recent Volume",
-                        "mdi:download-network-outline",
-                        UnitOfInformation.GIGABYTES,
-                        SensorDeviceClass.DATA_SIZE,
-                    ),
-                    (
-                        "upload_bytes",
-                        "Upload Recent Volume",
-                        "mdi:upload-network-outline",
-                        UnitOfInformation.GIGABYTES,
-                        SensorDeviceClass.DATA_SIZE,
-                    ),
-                    (
-                        "download_mbps",
-                        "Download Mbps",
-                        "mdi:speedometer",
-                        UnitOfDataRate.MEGABITS_PER_SECOND,
-                        SensorDeviceClass.DATA_RATE,
-                    ),
-                    (
-                        "upload_mbps",
-                        "Upload Mbps",
-                        "mdi:speedometer-medium",
-                        UnitOfDataRate.MEGABITS_PER_SECOND,
-                        SensorDeviceClass.DATA_RATE,
-                    ),
-                )
+                for metric_key, metric_name, icon, unit, device_class in _BANDWIDTH_SENSOR_METRICS
             )
 
     async_add_entities(entities)
@@ -517,6 +541,111 @@ class FirewallaNetworkBandwidthSensor(FirewallaBaseSensor):
             "flow_count": network.get("flow_count"),
             "window_minutes": network.get("window_minutes"),
             "window_seconds": network.get("window_seconds"),
+            **attrs,
+        }
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated coordinator data."""
+        self.async_write_ha_state()
+
+
+class FirewallaBoxBandwidthSensor(FirewallaBaseSensor):
+    """Representation of a per-box Firewalla bandwidth sensor."""
+
+    def __init__(
+        self,
+        coordinator,
+        entry: ConfigEntry,
+        box_gid: str,
+        box_name: str,
+        metric_key: str,
+        metric_name: str,
+        icon: str,
+        unit,
+        device_class,
+    ) -> None:
+        """Initialize the box sensor."""
+        super().__init__(coordinator, entry)
+        self._box_gid = box_gid
+        self._box_name = box_name
+        self._metric_key = metric_key
+        self._attr_name = f"{box_name} {metric_name}"
+        self._attr_unique_id = f"{entry.entry_id}_box_{box_gid}_{metric_key}"
+        self._attr_suggested_object_id = f"firewalla_{_slugify(box_name)}_{metric_key}"
+        self._attr_icon = icon
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return box device metadata."""
+        box_bandwidth = self.coordinator.data.get("box_bandwidth", {})
+        box = box_bandwidth.get(self._box_gid, {}) if isinstance(box_bandwidth, dict) else {}
+        if not isinstance(box, dict):
+            box = {}
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._entry.entry_id}_box_{self._box_gid}")},
+            name=f"Firewalla {box.get('name') or self._box_name}",
+            manufacturer="Firewalla",
+            model=str(box.get("model") or "MSP API"),
+            configuration_url=self.coordinator.client.base_url,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return whether the sensor is available."""
+        capabilities = self.coordinator.data.get("capabilities", {})
+        if not isinstance(capabilities, dict):
+            return False
+        return bool(capabilities.get("box_bandwidth"))
+
+    @property
+    def native_value(self) -> int | float | None:
+        """Return the sensor state."""
+        if not self.available:
+            return None
+        box_bandwidth = self.coordinator.data.get("box_bandwidth", {})
+        if not isinstance(box_bandwidth, dict):
+            return None
+        box = box_bandwidth.get(self._box_gid, {})
+        if not isinstance(box, dict):
+            return 0
+        value = box.get(self._metric_key)
+        if not isinstance(value, (int, float)):
+            return 0
+        if self._metric_key.endswith("_bytes"):
+            return _bytes_to_gigabytes(value)
+        return value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Return box bandwidth metadata."""
+        attrs = self._scope_attributes()
+        box_bandwidth = self.coordinator.data.get("box_bandwidth", {})
+        if not isinstance(box_bandwidth, dict):
+            return {"source": "grouped_flows_by_box", **attrs}
+        box = box_bandwidth.get(self._box_gid, {})
+        if not isinstance(box, dict) or not box:
+            return {
+                "source": "grouped_flows_by_box",
+                "box_gid": self._box_gid,
+                "box_name": self._box_name,
+                **attrs,
+            }
+        return {
+            "source": "grouped_flows_by_box",
+            "box_gid": self._box_gid,
+            "box_name": box.get("name") or self._box_name,
+            "box_model": box.get("model"),
+            "box_online": box.get("online"),
+            "group_id": box.get("group_id"),
+            "raw_download_bytes": box.get("download_bytes"),
+            "raw_upload_bytes": box.get("upload_bytes"),
+            "flow_count": box.get("flow_count"),
+            "window_minutes": box.get("window_minutes"),
+            "window_seconds": box.get("window_seconds"),
             **attrs,
         }
 

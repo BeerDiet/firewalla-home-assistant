@@ -26,6 +26,7 @@ from custom_components.firewalla.const import (
 from custom_components.firewalla.coordinator import (
     FirewallaTrendsCoordinator,
     _aggregate_bandwidth,
+    _build_box_bandwidth,
     _build_flow_query,
     _build_known_networks,
     _build_network_bandwidth,
@@ -127,6 +128,32 @@ def test_scope_info_and_bandwidth_helpers() -> None:
     assert aggregate["upload_bytes"] == 750_000
     assert aggregate["download_mbps"] == 2.0
     assert aggregate["upload_mbps"] == 1.2
+
+    box_bandwidth = _build_box_bandwidth(
+        [
+            {
+                "gid": "gid-1",
+                "network": {"id": "1", "name": "LAN", "type": "lan"},
+                "download": 1_250_000,
+                "upload": 625_000,
+                "count": 2,
+            },
+            {
+                "gid": "gid-1",
+                "network": {"id": "2", "name": "Guest", "type": "lan"},
+                "download": 125_000,
+                "upload": 25_000,
+                "count": 1,
+            },
+        ],
+        5,
+        5,
+        {"gid-1": {"gid": "gid-1", "name": "Box One", "model": "FW1"}},
+    )
+    assert sorted(box_bandwidth.keys()) == ["gid-1"]
+    assert box_bandwidth["gid-1"]["name"] == "Box One"
+    assert box_bandwidth["gid-1"]["download_bytes"] == 1_375_000
+    assert box_bandwidth["gid-1"]["flow_count"] == 3
 
 
 def test_network_bandwidth_merges_missing_gid_into_known_network() -> None:
@@ -233,6 +260,7 @@ async def test_coordinator_update_success_global_scope(hass) -> None:
     assert result["simple_stats"]["onlineBoxes"] == 3
     assert result["bandwidth"]["download_mbps"] == expected_download_mbps
     assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
+    assert result["box_bandwidth"]["gid-1"]["download_bytes"] == 1_250_000
     assert result["network_bandwidth"]["gid-1::1"]["name"] == "LAN"
     assert result["bandwidth"]["flow_count"] == 2
     assert result["capabilities"]["top_stats"] is True
@@ -421,7 +449,12 @@ async def test_coordinator_tolerates_temporary_global_rate_limit(hass) -> None:
     """Test temporary API-wide rate limiting returns empty data instead of failing."""
 
     class RateLimitedClient(MockClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.box_calls = 0
+
         async def async_get_boxes(self, *, group: str | None = None):
+            self.box_calls += 1
             raise FirewallaApiError("http_429")
 
         async def async_get_trend(self, trend_type: str, group: str | None):
@@ -449,12 +482,52 @@ async def test_coordinator_tolerates_temporary_global_rate_limit(hass) -> None:
         data={"name": DOMAIN, "scan_interval": 300, CONF_SCOPE_TYPE: SCOPE_GLOBAL},
         options={},
     )
-    coordinator = FirewallaTrendsCoordinator(hass, entry, RateLimitedClient())
+    client = RateLimitedClient()
+    coordinator = FirewallaTrendsCoordinator(hass, entry, client)
 
-    result = await coordinator._async_update_data()
+    first_result = await coordinator._async_update_data()
+    second_result = await coordinator._async_update_data()
 
-    assert result["capabilities"]["boxes"] is False
-    assert result["capabilities"]["bandwidth"] is False
-    assert result["endpoint_errors"]["boxes"] == "http_429"
-    assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
-    assert result["network_bandwidth"] == {}
+    assert first_result["capabilities"]["boxes"] is False
+    assert first_result["capabilities"]["bandwidth"] is False
+    assert first_result["endpoint_errors"]["boxes"] == "http_429"
+    assert first_result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
+    assert first_result["network_bandwidth"] == {}
+    assert second_result["endpoint_errors"]["rate_limit"].startswith("backoff_active_")
+    assert client.box_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_coordinator_preserves_last_successful_data_during_rate_limit(hass) -> None:
+    """Test rate limiting keeps the last successful payload during backoff."""
+
+    class FlakyRateLimitClient(MockClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.rate_limit = False
+            self.box_calls = 0
+
+        async def async_get_boxes(self, *, group: str | None = None) -> list[dict[str, object]]:
+            self.box_calls += 1
+            if self.rate_limit:
+                raise FirewallaApiError("http_429")
+            return await super().async_get_boxes(group=group)
+
+    entry = SimpleNamespace(
+        data={"name": DOMAIN, "scan_interval": 300, CONF_SCOPE_TYPE: SCOPE_GLOBAL},
+        options={},
+    )
+    client = FlakyRateLimitClient()
+    coordinator = FirewallaTrendsCoordinator(hass, entry, client)
+
+    successful = await coordinator._async_update_data()
+    client.rate_limit = True
+    limited = await coordinator._async_update_data()
+    backed_off = await coordinator._async_update_data()
+
+    assert successful["bandwidth"]["download_bytes"] == 1_250_000
+    assert limited["bandwidth"]["download_bytes"] == 1_250_000
+    assert limited["endpoint_errors"]["boxes"] == "http_429"
+    assert backed_off["bandwidth"]["download_bytes"] == 1_250_000
+    assert backed_off["endpoint_errors"]["rate_limit"].startswith("backoff_active_")
+    assert client.box_calls == 2

@@ -9,7 +9,61 @@ This integration connects to a Firewalla MSP endpoint with a personal access tok
 - Current alarms and rules
 - Top-box and top-region statistics
 - Aggregate download/upload traffic
+- Per-box download/upload traffic
 - Per-network download/upload traffic
+
+## Sensors created
+
+The integration can create the following sensor groups.
+
+Global and group scopes:
+
+- `Blocked Flows`
+- `Alarms`
+- `Rule Activity`
+- `Online Boxes`
+- `Offline Boxes`
+- `Current Alarms`
+- `Current Rules`
+- `Top Box Blocked Flows`
+- `Top Box Security Alarms`
+- `Top Region Blocked Flows`
+- `Download Recent Volume`
+- `Upload Recent Volume`
+- `Download Mbps`
+- `Upload Mbps`
+
+Box scope:
+
+- `Download Recent Volume`
+- `Upload Recent Volume`
+- `Download Mbps`
+- `Upload Mbps`
+
+Dynamic per-network sensors:
+
+For each network returned by the Firewalla API, the integration also creates:
+
+- `<Network Name> Download Recent Volume`
+- `<Network Name> Upload Recent Volume`
+- `<Network Name> Download Mbps`
+- `<Network Name> Upload Mbps`
+
+Dynamic per-box sensors:
+
+For each Firewalla box returned in the selected global or group scope, the integration also creates:
+
+- `<Box Name> Download Recent Volume`
+- `<Box Name> Upload Recent Volume`
+- `<Box Name> Download Mbps`
+- `<Box Name> Upload Mbps`
+
+Notes:
+
+- Per-box sensors are deduplicated by Firewalla `gid`, so a box is only added once even if multiple grouped flow rows refer to it.
+- Per-network sensors are only created when grouped flow and device data are available.
+- Network names are automatically qualified when duplicate names exist across boxes.
+- Some sensor groups may remain unavailable when the configured scope or token cannot access the required endpoint.
 
 ## Scope model
 
@@ -21,7 +75,7 @@ The integration supports three scopes:
 
 The configured scope affects which sensors can exist:
 
-- `global` and `group` scopes can expose trend, simple-stat, top-stat, aggregate bandwidth, and per-network bandwidth sensors
+- `global` and `group` scopes can expose trend, simple-stat, top-stat, aggregate bandwidth, dynamic per-box bandwidth sensors, and per-network bandwidth sensors
 - `box` scope can expose aggregate bandwidth and per-network bandwidth sensors
 - `box` scope does not create trend or top-stat sensors because the MSP API does not expose those endpoints per box
 
