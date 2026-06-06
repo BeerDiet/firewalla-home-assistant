@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.firewalla.api import (
     FirewallaApiAuthError,
@@ -379,7 +378,7 @@ async def test_coordinator_update_auth_failure(hass) -> None:
 
 @pytest.mark.asyncio
 async def test_coordinator_update_transport_failure_when_no_endpoint_works(hass) -> None:
-    """Test coordinator fails when no usable endpoints remain."""
+    """Test temporary transport failures degrade instead of aborting setup."""
 
     class ErrorClient(MockClient):
         async def async_get_boxes(self, *, group: str | None = None):
@@ -408,8 +407,13 @@ async def test_coordinator_update_transport_failure_when_no_endpoint_works(hass)
     )
     coordinator = FirewallaTrendsCoordinator(hass, entry, ErrorClient())
 
-    with pytest.raises(UpdateFailed, match="No Firewalla endpoints available"):
-        await coordinator._async_update_data()
+    result = await coordinator._async_update_data()
+
+    assert result["capabilities"]["boxes"] is False
+    assert result["capabilities"]["bandwidth"] is False
+    assert result["endpoint_errors"]["boxes"] == "cannot_connect"
+    assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
+    assert result["network_bandwidth"] == {}
 
 
 @pytest.mark.asyncio
