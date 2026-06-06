@@ -1,0 +1,37 @@
+{
+  "title": "Firewalla",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Firewalla",
+        "description": "Enter your Firewalla MSP URL and personal access token.",
+        "data": {
+          "name": "Name",
+          "base_url": "Firewalla URL",
+          "token": "Personal access token",
+          "scope_type": "Scope type",
+          "scope_id": "Scope ID",
+          "scan_interval": "Scan interval (seconds)",
+          "verify_ssl": "Verify SSL certificate"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the Firewalla API.",
+      "invalid_auth": "Authentication failed. Check the personal access token.",
+      "invalid_url": "The URL is not valid.",
+      "missing_scope_id": "A scope ID is required for group and box scopes.",
+      "unknown_box": "The configured box ID was not found."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Firewalla Options",
+        "data": {
+          "scan_interval": "Scan interval (seconds)"
+        }
+      }
+    }
+  }
+}

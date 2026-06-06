@@ -1,0 +1,39 @@
+title: Firewalla
+views:
+  - title: Traffic
+    path: traffic
+    icon: mdi:speedometer
+    cards:
+      - type: custom:mini-graph-card
+        name: Internet Traffic
+        hours_to_show: 6
+        points_per_hour: 12
+        line_width: 2
+        lower_bound: 0
+        smoothing: false
+        show:
+          state: true
+          legend: true
+          fill: false
+        entities:
+          - entity: sensor.firewalla_download_mbps
+            name: Download
+            color: "#00acc1"
+          - entity: sensor.firewalla_upload_mbps
+            name: Upload
+            color: "#fb8c00"
+      - type: entities
+        title: Throughput
+        entities:
+          - entity: sensor.firewalla_download_mbps
+          - entity: sensor.firewalla_upload_mbps
+          - entity: sensor.firewalla_download_last_5m
+          - entity: sensor.firewalla_upload_last_5m
+      - type: entities
+        title: Activity
+        entities:
+          - entity: sensor.firewalla_blocked_flows
+          - entity: sensor.firewalla_alarms
+          - entity: sensor.firewalla_rules
+          - entity: sensor.firewalla_online_boxes
+          - entity: sensor.firewalla_offline_boxes

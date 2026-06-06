@@ -1,0 +1,54 @@
+title: Firewalla
+views:
+  - title: Overview
+    path: overview
+    icon: mdi:shield-home
+    sections:
+      - type: grid
+        cards:
+          - type: tile
+            entity: sensor.firewalla_blocked_flows
+            name: Blocked Flows
+          - type: tile
+            entity: sensor.firewalla_alarms
+            name: Alarms
+          - type: tile
+            entity: sensor.firewalla_rules
+            name: Rules
+          - type: tile
+            entity: sensor.firewalla_online_boxes
+            name: Online Boxes
+      - type: grid
+        cards:
+          - type: tile
+            entity: sensor.firewalla_download_mbps
+            name: Download
+          - type: tile
+            entity: sensor.firewalla_upload_mbps
+            name: Upload
+          - type: tile
+            entity: sensor.firewalla_download_last_5m
+            name: Download Last 5m
+          - type: tile
+            entity: sensor.firewalla_upload_last_5m
+            name: Upload Last 5m
+      - type: grid
+        cards:
+          - type: gauge
+            entity: sensor.firewalla_download_mbps
+            name: Download Mbps
+            min: 0
+            max: 1000
+          - type: gauge
+            entity: sensor.firewalla_upload_mbps
+            name: Upload Mbps
+            min: 0
+            max: 1000
+      - type: grid
+        cards:
+          - type: entities
+            title: Top Stats
+            entities:
+              - entity: sensor.firewalla_top_box_blocked_flows
+              - entity: sensor.firewalla_top_box_security_alarms
+              - entity: sensor.firewalla_top_region_blocked_flows
