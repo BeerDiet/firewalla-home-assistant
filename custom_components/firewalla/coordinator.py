@@ -187,6 +187,7 @@ def _build_network_bandwidth(
     known_networks: dict[str, dict[str, object]],
     recent_flows: list[dict[str, object]],
     window_seconds: int,
+    window_minutes: int,
     boxes_by_gid: dict[str, dict[str, object]],
 ) -> dict[str, dict[str, object]]:
     """Build per-network bandwidth stats from recent grouped flows."""
@@ -199,6 +200,7 @@ def _build_network_bandwidth(
             "upload_mbps": 0.0,
             "flow_count": 0,
             "window_seconds": window_seconds,
+            "window_minutes": window_minutes,
         }
         for network_key, network in known_networks.items()
     }
@@ -253,6 +255,7 @@ def _build_network_bandwidth(
                 "upload_mbps": 0.0,
                 "flow_count": 0,
                 "window_seconds": window_seconds,
+                "window_minutes": window_minutes,
             },
         )
         current["download_bytes"] = (
@@ -273,7 +276,9 @@ def _build_network_bandwidth(
 
 
 def _aggregate_bandwidth(
-    network_bandwidth: dict[str, dict[str, object]], window_seconds: int
+    network_bandwidth: dict[str, dict[str, object]],
+    window_seconds: int,
+    window_minutes: int,
 ) -> dict[str, object]:
     """Aggregate global traffic totals from per-network data."""
     download_bytes = 0
@@ -292,6 +297,7 @@ def _aggregate_bandwidth(
         "upload_mbps": _compute_rate_mbps(upload_bytes, window_seconds),
         "flow_count": counted_flows,
         "window_seconds": window_seconds,
+        "window_minutes": window_minutes,
     }
 
 
@@ -480,6 +486,7 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                     known_networks,
                     recent_flows,
                     window_seconds,
+                    self.traffic_window_minutes,
                     boxes_by_gid,
                 )
                 if capabilities["grouped_flows"]
@@ -488,7 +495,11 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
             capabilities["network_bandwidth"] = bool(network_bandwidth)
 
             bandwidth = (
-                _aggregate_bandwidth(network_bandwidth, window_seconds)
+                _aggregate_bandwidth(
+                    network_bandwidth,
+                    window_seconds,
+                    self.traffic_window_minutes,
+                )
                 if capabilities["grouped_flows"]
                 else {
                     "download_bytes": 0,
