@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from homeassistant.helpers import entity_registry as er
+
 from custom_components.firewalla.api import TrendPoint
 from custom_components.firewalla.const import SCOPE_GROUP
 from custom_components.firewalla.sensor import (
@@ -18,7 +20,6 @@ from custom_components.firewalla.sensor import (
     _slugify,
     async_setup_entry,
 )
-from homeassistant.helpers import entity_registry as er
 
 
 def _entry() -> SimpleNamespace:

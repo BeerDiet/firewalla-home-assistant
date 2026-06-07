@@ -33,8 +33,8 @@ from custom_components.firewalla.coordinator import (
     _build_network_bandwidth,
     _build_scope_info,
     _compute_rate_mbps,
-    _network_key,
     _merge_endpoint_errors,
+    _network_key,
     _scope_from_entry,
     _traffic_window_minutes_from_entry,
 )
