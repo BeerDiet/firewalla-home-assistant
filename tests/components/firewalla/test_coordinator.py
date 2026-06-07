@@ -188,6 +188,27 @@ def test_network_bandwidth_merges_missing_gid_into_known_network() -> None:
     assert network_bandwidth["gid-1::1"]["display_name"] == "Wired"
 
 
+def test_box_bandwidth_merges_missing_gid_into_only_known_box() -> None:
+    """Test grouped flows without gid reuse the only known box."""
+    box_bandwidth = _build_box_bandwidth(
+        [
+            {
+                "network": {"id": "1", "name": "Wired", "type": "lan"},
+                "download": 1_250_000,
+                "upload": 625_000,
+                "count": 2,
+            }
+        ],
+        5,
+        5,
+        {"gid-1": {"gid": "gid-1", "name": "Tudor Firewalla", "model": "FW"}},
+    )
+
+    assert sorted(box_bandwidth.keys()) == ["gid-1"]
+    assert box_bandwidth["gid-1"]["name"] == "Tudor Firewalla"
+    assert box_bandwidth["gid-1"]["download_bytes"] == 1_250_000
+
+
 class MockClient:
     """Mock client for coordinator tests."""
 

@@ -321,12 +321,15 @@ def _build_box_bandwidth(
 ) -> dict[str, dict[str, object]]:
     """Build per-box bandwidth stats from recent grouped flows."""
     box_bandwidth: dict[str, dict[str, object]] = {}
+    known_box_gids = list(boxes_by_gid)
 
     for item in recent_flows:
         if item.get("block") is True or item.get("blocked") is True:
             continue
 
         gid = str(item.get("gid") or "").strip()
+        if not gid and len(known_box_gids) == 1:
+            gid = known_box_gids[0]
         if not gid:
             continue
 
