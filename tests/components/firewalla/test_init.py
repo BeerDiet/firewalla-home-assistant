@@ -63,7 +63,7 @@ async def test_async_setup_returns_true(hass) -> None:
 async def test_async_migrate_entry_returns_true(hass) -> None:
     """Test config entry migration updates legacy scope fields."""
     entry = MagicMock()
-    entry.data = {"group": "branch-office"}
+    entry.data = {"group": "group-1"}
 
     with patch.object(hass.config_entries, "async_update_entry") as mock_update:
         assert await async_migrate_entry(hass, entry) is True
@@ -71,7 +71,7 @@ async def test_async_migrate_entry_returns_true(hass) -> None:
     mock_update.assert_called_once()
     migrated = mock_update.call_args.kwargs["data"]
     assert migrated[CONF_SCOPE_TYPE] == SCOPE_GROUP
-    assert migrated[CONF_SCOPE_ID] == "branch-office"
+    assert migrated[CONF_SCOPE_ID] == "group-1"
 
 
 async def test_async_migrate_entry_sets_global_scope_when_legacy_group_empty(hass) -> None:

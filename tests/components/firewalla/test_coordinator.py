@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.firewalla.api import (
     FirewallaApiAuthError,
@@ -33,6 +34,7 @@ from custom_components.firewalla.coordinator import (
     _build_scope_info,
     _compute_rate_mbps,
     _network_key,
+    _merge_endpoint_errors,
     _scope_from_entry,
     _traffic_window_minutes_from_entry,
 )
@@ -67,13 +69,16 @@ def test_helper_builders() -> None:
     assert _traffic_window_minutes_from_entry(
         SimpleNamespace(data={}, options={CONF_TRAFFIC_WINDOW_MINUTES: 30})
     ) == 30
+    assert _traffic_window_minutes_from_entry(
+        SimpleNamespace(data={}, options={CONF_TRAFFIC_WINDOW_MINUTES: "bad"})
+    ) == DEFAULT_TRAFFIC_WINDOW_MINUTES
 
 
 def test_scope_info_and_bandwidth_helpers() -> None:
     """Test scope metadata and bandwidth aggregation helpers."""
-    boxes = [{"gid": "gid-1", "name": "Branch Box", "model": "FWG", "online": True}]
+    boxes = [{"gid": "gid-1", "name": "Box One", "model": "FWG", "online": True}]
     scope = _build_scope_info(SCOPE_BOX, "gid-1", boxes)
-    assert scope["label"] == "Branch Box"
+    assert scope["label"] == "Box One"
     assert scope["box_model"] == "FWG"
 
     known_networks = _build_known_networks(
@@ -154,6 +159,81 @@ def test_scope_info_and_bandwidth_helpers() -> None:
     assert box_bandwidth["gid-1"]["name"] == "Box One"
     assert box_bandwidth["gid-1"]["download_bytes"] == 1_375_000
     assert box_bandwidth["gid-1"]["flow_count"] == 3
+
+
+def test_bandwidth_helpers_handle_malformed_items() -> None:
+    """Test helper builders skip malformed inputs and merge errors."""
+    known_networks = {
+        "gid-1::1": {
+            "id": "1",
+            "name": "LAN",
+            "display_name": "LAN",
+            "gid": "gid-1",
+            "box_name": "Box One",
+            "box_model": "FW1",
+            "type": "lan",
+            "group_id": "gid-1",
+        },
+        "global::2": {
+            "id": "2",
+            "name": "Guest",
+            "display_name": "Guest",
+            "gid": None,
+            "box_name": None,
+            "box_model": None,
+            "type": "lan",
+            "group_id": None,
+        },
+        "bad::3": {
+            "id": "",
+            "name": "Skip",
+            "display_name": "Skip",
+            "gid": None,
+            "box_name": None,
+            "box_model": None,
+            "type": "lan",
+            "group_id": None,
+        },
+    }
+    network_bandwidth = _build_network_bandwidth(
+        known_networks,
+        [
+            {"network": {"id": "1", "name": "LAN"}, "download": "bad", "upload": 5},
+            {"network": {"id": "2", "name": "Guest"}, "download": 100, "upload": 50},
+            {"network": {"id": "3", "name": ""}, "download": 100},
+            {"network": {"id": "4", "name": "Missing"}, "download": 100},
+        ],
+        5,
+        5,
+        {"gid-1": {"gid": "gid-1", "name": "Box One", "model": "FW1"}},
+    )
+
+    assert network_bandwidth["gid-1::1"]["download_bytes"] == 0
+    assert network_bandwidth["global::2"]["download_bytes"] == 100
+    assert "global::3" not in network_bandwidth
+    assert network_bandwidth["global::4"]["display_name"] == "Missing"
+
+    box_bandwidth = _build_box_bandwidth(
+        [
+            {"blocked": True, "network": {"id": "1", "name": "LAN"}},
+            {"network": {"id": "2", "name": "Guest"}, "download": "bad"},
+            {"network": {"id": "3", "name": "No GID"}},
+            {"gid": "", "network": {"id": "4", "name": "Skip"}},
+        ],
+        5,
+        5,
+        {"gid-1": {"gid": "gid-1", "name": "Box One", "model": "FW1"}},
+    )
+
+    assert box_bandwidth["gid-1"]["download_bytes"] == 0
+    assert "gid-1" in box_bandwidth
+    assert len(box_bandwidth) == 1
+
+    merged = _merge_endpoint_errors(
+        {"endpoint_errors": {"boxes": "http_403"}},
+        {"trends": "cannot_connect"},
+    )
+    assert merged["endpoint_errors"] == {"boxes": "http_403", "trends": "cannot_connect"}
 
 
 def test_network_bandwidth_merges_missing_gid_into_known_network() -> None:
@@ -463,6 +543,45 @@ async def test_coordinator_update_transport_failure_when_no_endpoint_works(hass)
     assert result["endpoint_errors"]["boxes"] == "cannot_connect"
     assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
     assert result["network_bandwidth"] == {}
+
+
+@pytest.mark.asyncio
+async def test_coordinator_raises_when_every_endpoint_returns_non_temporary_error(
+    hass,
+) -> None:
+    """Test non-temporary total failures raise update failed."""
+
+    class HardFailClient(MockClient):
+        async def async_get_boxes(self, *, group: str | None = None):
+            raise FirewallaApiError("http_403")
+
+        async def async_get_trend(self, trend_type: str, group: str | None):
+            raise FirewallaApiError("http_403")
+
+        async def async_get_simple_stats(self, group: str | None):
+            raise FirewallaApiError("http_403")
+
+        async def async_get_statistics(
+            self, stats_type: str, *, group: str | None, limit: int
+        ):
+            raise FirewallaApiError("http_403")
+
+        async def async_get_devices(self, *, group: str | None = None, box: str | None = None):
+            raise FirewallaApiError("http_403")
+
+        async def async_get_grouped_flows(
+            self, *, query: str | None = None, group_by: str = "network", limit: int = 100
+        ):
+            raise FirewallaApiError("http_403")
+
+    entry = SimpleNamespace(
+        data={"name": DOMAIN, "scan_interval": 300, CONF_SCOPE_TYPE: SCOPE_GLOBAL},
+        options={},
+    )
+    coordinator = FirewallaTrendsCoordinator(hass, entry, HardFailClient())
+
+    with pytest.raises(UpdateFailed, match="No Firewalla endpoints available"):
+        await coordinator._async_update_data()
 
 
 @pytest.mark.asyncio

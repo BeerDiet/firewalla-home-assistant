@@ -75,7 +75,7 @@ async def test_user_flow_creates_group_entry_with_generated_title(hass) -> None:
                 CONF_BASE_URL: "example.firewalla.net",
                 "token": "abc123",
                 CONF_SCOPE_TYPE: SCOPE_GROUP,
-                CONF_SCOPE_ID: "  branch-office  ",
+                CONF_SCOPE_ID: "  group-1  ",
                 CONF_SCAN_INTERVAL: 300,
                 CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
@@ -83,9 +83,9 @@ async def test_user_flow_creates_group_entry_with_generated_title(hass) -> None:
         )
 
     assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Firewalla (group branch-office)"
+    assert result["title"] == "Firewalla (group group-1)"
     assert result["data"][CONF_BASE_URL] == "https://example.firewalla.net"
-    assert result["data"][CONF_SCOPE_ID] == "branch-office"
+    assert result["data"][CONF_SCOPE_ID] == "group-1"
 
 
 async def test_user_flow_creates_box_entry(hass) -> None:
@@ -101,7 +101,7 @@ async def test_user_flow_creates_box_entry(hass) -> None:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
-                "name": "Branch Box",
+                "name": "Box One",
                 CONF_BASE_URL: "example.firewalla.net",
                 "token": "abc123",
                 CONF_SCOPE_TYPE: SCOPE_BOX,
@@ -245,13 +245,13 @@ async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Firewalla",
-        unique_id="https://example.firewalla.net|group|branch-office",
+        unique_id="https://example.firewalla.net|group|group-1",
         data={
             "name": "Firewalla",
             CONF_BASE_URL: "https://example.firewalla.net",
             "token": "abc123",
             CONF_SCOPE_TYPE: SCOPE_GROUP,
-            CONF_SCOPE_ID: "branch-office",
+            CONF_SCOPE_ID: "group-1",
             CONF_SCAN_INTERVAL: 300,
             CONF_TRAFFIC_WINDOW_MINUTES: 15,
             CONF_VERIFY_SSL: True,
@@ -274,7 +274,7 @@ async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
                 CONF_BASE_URL: "https://example.firewalla.net",
                 "token": "abc123",
                 CONF_SCOPE_TYPE: SCOPE_GROUP,
-                CONF_SCOPE_ID: "branch-office",
+                CONF_SCOPE_ID: "group-1",
                 CONF_SCAN_INTERVAL: 300,
                 CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
@@ -411,13 +411,13 @@ def test_normalize_user_input_supports_legacy_group_field() -> None:
         {
             "name": "",
             CONF_SCOPE_TYPE: SCOPE_GLOBAL,
-            "group": "  branch-office  ",
+            "group": "  group-1  ",
         }
     )
 
     assert normalized[CONF_SCOPE_TYPE] == SCOPE_GROUP
-    assert normalized[CONF_SCOPE_ID] == "branch-office"
-    assert normalized["name"] == "Firewalla (group branch-office)"
+    assert normalized[CONF_SCOPE_ID] == "group-1"
+    assert normalized["name"] == "Firewalla (group group-1)"
 
 
 async def test_validate_input_checks_box_scope(hass) -> None:

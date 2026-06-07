@@ -259,14 +259,16 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
             if not isinstance(network, dict):
                 continue
             box_gid = str(network.get("gid") or "").strip()
+            box_name = str(network.get("box_name") or box_gid).strip()
             network_name = str(network.get("display_name") or network.get("name") or "").strip()
-            if not network_key or not network_name or not box_gid:
+            if not network_key or not network_name or not box_gid or not box_name:
                 continue
             entities.extend(
                 FirewallaPerBoxNetworkBandwidthSensor(
                     coordinator,
                     entry,
                     box_gid,
+                    box_name,
                     network_key,
                     network_name,
                     metric_key,
@@ -624,6 +626,7 @@ class FirewallaPerBoxNetworkBandwidthSensor(FirewallaBaseSensor):
         coordinator,
         entry: ConfigEntry,
         box_gid: str,
+        box_name: str,
         network_key: str,
         network_name: str,
         metric_key: str,
@@ -635,13 +638,14 @@ class FirewallaPerBoxNetworkBandwidthSensor(FirewallaBaseSensor):
         """Initialize the per-box network sensor."""
         super().__init__(coordinator, entry)
         self._box_gid = box_gid
+        self._box_name = box_name
         self._network_key = network_key
         self._network_name = network_name
         self._metric_key = metric_key
-        self._attr_name = f"{network_name} {metric_name}"
+        self._attr_name = f"{box_name}-{network_name}-{metric_name}"
         self._attr_unique_id = f"{entry.entry_id}_box_{box_gid}_network_{network_key}_{metric_key}"
         self._attr_suggested_object_id = (
-            f"firewalla_{_slugify(self._box_gid)}_{_slugify(network_name)}_{metric_key}"
+            f"firewalla_{_slugify(self._box_name)}_{_slugify(network_name)}_{metric_key}"
         )
         self._attr_icon = icon
         self._attr_native_unit_of_measurement = unit
