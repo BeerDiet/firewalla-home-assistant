@@ -14,6 +14,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfDataRate, UnitOfInformation
 from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -202,56 +203,28 @@ _BANDWIDTH_SENSOR_METRICS = (
 async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> None:
     """Set up Firewalla sensors."""
     coordinator = entry.runtime_data
-    entities = [
-        FirewallaTrendSensor(coordinator, entry, description)
-        for description in SENSOR_DESCRIPTIONS
-    ]
+    entity_registry = er.async_get(hass)
+    for registry_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if registry_entry.platform != DOMAIN:
+            continue
+        entity_registry.async_remove(registry_entry.entity_id)
 
-    box_bandwidth = coordinator.data.get("box_bandwidth", {})
-    if isinstance(box_bandwidth, dict):
-        for box_gid, box in box_bandwidth.items():
-            if not isinstance(box, dict):
-                continue
-            box_name = str(box.get("name") or "").strip()
-            if not box_gid or not box_name:
-                continue
-            entities.extend(
-                FirewallaBoxBandwidthSensor(
-                    coordinator,
-                    entry,
-                    box_gid,
-                    box_name,
-                    metric_key,
-                    metric_name,
-                    icon,
-                    unit,
-                    device_class,
-                )
-                for metric_key, metric_name, icon, unit, device_class in _BANDWIDTH_SENSOR_METRICS
-            )
+    entities = []
+    boxes = coordinator.data.get("boxes", [])
+    if not isinstance(boxes, list):
+        boxes = []
 
-    network_bandwidth = coordinator.data.get("network_bandwidth", {})
-    if isinstance(network_bandwidth, dict):
-        for network_key, network in network_bandwidth.items():
-            if not isinstance(network, dict):
-                continue
-            network_name = str(network.get("display_name") or network.get("name") or "").strip()
-            if not network_key or not network_name:
-                continue
-            entities.extend(
-                FirewallaNetworkBandwidthSensor(
-                    coordinator,
-                    entry,
-                    network_key,
-                    network_name,
-                    metric_key,
-                    metric_name,
-                    icon,
-                    unit,
-                    device_class,
-                )
-                for metric_key, metric_name, icon, unit, device_class in _BANDWIDTH_SENSOR_METRICS
-            )
+    for box in boxes:
+        if not isinstance(box, dict):
+            continue
+        box_gid = str(box.get("gid") or "").strip()
+        box_name = str(box.get("name") or box_gid).strip()
+        if not box_gid or not box_name:
+            continue
+        entities.extend(
+            FirewallaPerBoxSensor(coordinator, entry, box_gid, box_name, description)
+            for description in SENSOR_DESCRIPTIONS
+        )
 
     async_add_entities(entities)
 
@@ -450,6 +423,184 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
             trend_attrs["previous_timestamp"] = series[1].as_datetime.isoformat()
 
         return trend_attrs
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated coordinator data."""
+        self.async_write_ha_state()
+
+
+class FirewallaPerBoxSensor(FirewallaBaseSensor):
+    """Representation of a per-box Firewalla sensor."""
+
+    def __init__(
+        self,
+        coordinator,
+        entry: ConfigEntry,
+        box_gid: str,
+        box_name: str,
+        description: FirewallaTrendSensorDescription,
+    ) -> None:
+        """Initialize the per-box sensor."""
+        super().__init__(coordinator, entry)
+        self.entity_description = description
+        self._box_gid = box_gid
+        self._box_name = box_name
+        self._attr_name = description.name
+        self._attr_unique_id = f"{entry.entry_id}_{description.key}_box_{box_gid}"
+        self._attr_suggested_object_id = f"firewalla_{_slugify(box_name)}_{description.key}"
+
+    def _box(self) -> dict[str, object]:
+        """Return the current box metadata."""
+        boxes = self.coordinator.data.get("boxes", [])
+        if isinstance(boxes, list):
+            for box in boxes:
+                if not isinstance(box, dict):
+                    continue
+                if str(box.get("gid") or "").strip() == self._box_gid:
+                    return box
+
+        box_bandwidth = self.coordinator.data.get("box_bandwidth", {})
+        if isinstance(box_bandwidth, dict):
+            box = box_bandwidth.get(self._box_gid, {})
+            if isinstance(box, dict):
+                return box
+
+        return {}
+
+    def _box_top_stat_value(self, stats_type: str) -> int | None:
+        """Return a per-box top-stat value."""
+        top_stats = self.coordinator.data.get("top_stats", {})
+        if not isinstance(top_stats, dict):
+            return None
+
+        results = top_stats.get(stats_type, [])
+        if not isinstance(results, list):
+            return None
+
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            meta = result.get("meta", {})
+            if not isinstance(meta, dict):
+                continue
+            if str(meta.get("gid") or "").strip() != self._box_gid:
+                continue
+            value = result.get("value")
+            return value if isinstance(value, int) else 0
+
+        return 0
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return box device metadata."""
+        box = self._box()
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._entry.entry_id}_box_{self._box_gid}")},
+            name=f"Firewalla {box.get('name') or self._box_name}",
+            manufacturer="Firewalla",
+            model=str(box.get("model") or "MSP API"),
+            configuration_url=self.coordinator.client.base_url,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return whether the sensor is available."""
+        capabilities = self.coordinator.data.get("capabilities", {})
+        if not isinstance(capabilities, dict):
+            return False
+
+        key = self.entity_description.key
+        if self.entity_description.source == "bandwidth":
+            return bool(capabilities.get("grouped_flows"))
+        if key in {"online_boxes", "offline_boxes"}:
+            return bool(capabilities.get("boxes"))
+        if key in {
+            "flows",
+            "alarms",
+            "current_alarms",
+            "top_box_blocked_flows",
+            "top_box_security_alarms",
+        }:
+            return bool(capabilities.get("top_stats"))
+        return False
+
+    @property
+    def native_value(self) -> int | float | None:
+        """Return the sensor state."""
+        if not self.available:
+            return None
+
+        key = self.entity_description.key
+        if self.entity_description.source == "bandwidth":
+            box_bandwidth = self.coordinator.data.get("box_bandwidth", {})
+            if not isinstance(box_bandwidth, dict):
+                return None
+            box = box_bandwidth.get(self._box_gid, {})
+            if not isinstance(box, dict):
+                return 0
+            value = box.get(self.entity_description.trend_type)
+            if not isinstance(value, (int, float)):
+                return 0
+            if self.entity_description.trend_type.endswith("_bytes"):
+                return _bytes_to_gigabytes(value)
+            return value
+
+        if key in {"online_boxes", "offline_boxes"}:
+            online = self._box().get("online")
+            if not isinstance(online, bool):
+                return None
+            return int(online) if key == "online_boxes" else int(not online)
+
+        if key in {"flows", "top_box_blocked_flows"}:
+            return self._box_top_stat_value("topBoxesByBlockedFlows")
+
+        if key in {"alarms", "current_alarms", "top_box_security_alarms"}:
+            return self._box_top_stat_value("topBoxesBySecurityAlarms")
+
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Return box sensor attributes."""
+        attrs = self._scope_attributes()
+        box = self._box()
+        box_attrs = {
+            "box_gid": self._box_gid,
+            "box_name": box.get("name") or self._box_name,
+            "box_model": box.get("model"),
+            "box_online": box.get("online"),
+            **attrs,
+        }
+
+        key = self.entity_description.key
+        if self.entity_description.source == "bandwidth":
+            box_bandwidth = self.coordinator.data.get("box_bandwidth", {})
+            if not isinstance(box_bandwidth, dict):
+                return {"source": "grouped_flows_by_box", **box_attrs}
+            box_stats = box_bandwidth.get(self._box_gid, {})
+            if not isinstance(box_stats, dict):
+                return {"source": "grouped_flows_by_box", **box_attrs}
+            return {
+                "source": "grouped_flows_by_box",
+                "raw_download_bytes": box_stats.get("download_bytes"),
+                "raw_upload_bytes": box_stats.get("upload_bytes"),
+                "window_minutes": box_stats.get("window_minutes"),
+                "window_seconds": box_stats.get("window_seconds"),
+                "flow_count": box_stats.get("flow_count"),
+                **box_attrs,
+            }
+
+        if key in {"online_boxes", "offline_boxes"}:
+            return {"source": "boxes", **box_attrs}
+
+        if key in {"flows", "top_box_blocked_flows"}:
+            return {"source": "top_stats", "stats_type": "topBoxesByBlockedFlows", **box_attrs}
+
+        if key in {"alarms", "current_alarms", "top_box_security_alarms"}:
+            return {"source": "top_stats", "stats_type": "topBoxesBySecurityAlarms", **box_attrs}
+
+        return {"source": "unsupported_box_metric", **box_attrs}
 
     @callback
     def _handle_coordinator_update(self) -> None:

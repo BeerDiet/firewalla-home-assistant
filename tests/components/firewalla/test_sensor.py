@@ -10,6 +10,7 @@ from custom_components.firewalla.sensor import (
     SENSOR_DESCRIPTIONS,
     FirewallaBoxBandwidthSensor,
     FirewallaNetworkBandwidthSensor,
+    FirewallaPerBoxSensor,
     FirewallaTrendSensor,
     _bytes_to_gigabytes,
     _slugify,
@@ -35,6 +36,14 @@ def _coordinator(scope_id: str | None = None) -> SimpleNamespace:
                 "id": scope_id,
                 "label": scope_id or "Global MSP",
             },
+            "boxes": [
+                {
+                    "gid": "g1",
+                    "name": "Branch Box",
+                    "model": "FW",
+                    "online": True,
+                }
+            ],
             "capabilities": {
                 "trends": True,
                 "simple_stats": True,
@@ -356,8 +365,40 @@ def test_box_bandwidth_sensor_handles_missing_box() -> None:
     assert sensor.extra_state_attributes["box_name"] == "Missing Box"
 
 
-async def test_async_setup_entry_adds_supported_base_and_network_entities() -> None:
-    """Test sensor setup entity count respects capabilities."""
+def test_per_box_sensor_value_and_attrs() -> None:
+    """Test per-box sensors use box-scoped data."""
+    entry = _entry()
+    coordinator = _coordinator()
+    description = next(item for item in SENSOR_DESCRIPTIONS if item.key == "download_mbps")
+    sensor = FirewallaPerBoxSensor(coordinator, entry, "g1", "Branch Box", description)
+
+    assert sensor.available is True
+    assert sensor.native_value == 3.1
+    assert sensor.device_info["name"] == "Firewalla Branch Box"
+    assert sensor.extra_state_attributes["source"] == "grouped_flows_by_box"
+
+
+def test_per_box_sensor_uses_top_stats_and_box_metadata() -> None:
+    """Test per-box sensors derive counts and online status from box data."""
+    entry = _entry()
+    coordinator = _coordinator()
+
+    blocked_description = next(item for item in SENSOR_DESCRIPTIONS if item.key == "flows")
+    blocked_sensor = FirewallaPerBoxSensor(
+        coordinator, entry, "g1", "Branch Box", blocked_description
+    )
+    assert blocked_sensor.native_value == 8
+
+    online_description = next(item for item in SENSOR_DESCRIPTIONS if item.key == "online_boxes")
+    online_sensor = FirewallaPerBoxSensor(
+        coordinator, entry, "g1", "Branch Box", online_description
+    )
+    assert online_sensor.native_value == 1
+    assert online_sensor.extra_state_attributes["source"] == "boxes"
+
+
+async def test_async_setup_entry_adds_supported_per_box_entities() -> None:
+    """Test sensor setup adds one standard sensor set per discovered box."""
     entry = _entry()
     entry.runtime_data = _coordinator()
     hass = SimpleNamespace(data={"firewalla": {"entry-1": entry.runtime_data}})
@@ -368,11 +409,11 @@ async def test_async_setup_entry_adds_supported_base_and_network_entities() -> N
 
     await async_setup_entry(hass, entry, _add_entities)
 
-    assert len(added) == len(SENSOR_DESCRIPTIONS) + 4 + 4
+    assert len(added) == len(SENSOR_DESCRIPTIONS)
 
 
-async def test_async_setup_entry_skips_unsupported_and_invalid_network_entities() -> None:
-    """Test setup skips disabled capabilities and invalid network rows."""
+async def test_async_setup_entry_ignores_network_rows() -> None:
+    """Test setup ignores per-network rows and still adds per-box entities."""
     entry = _entry()
     entry.runtime_data = _coordinator()
     entry.runtime_data.data["capabilities"]["top_stats"] = False
@@ -388,5 +429,5 @@ async def test_async_setup_entry_skips_unsupported_and_invalid_network_entities(
 
     await async_setup_entry(hass, entry, _add_entities)
 
-    expected = len(SENSOR_DESCRIPTIONS) + 4
+    expected = len(SENSOR_DESCRIPTIONS)
     assert len(added) == expected
