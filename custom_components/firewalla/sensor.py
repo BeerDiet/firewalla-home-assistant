@@ -198,6 +198,24 @@ _BANDWIDTH_SENSOR_METRICS = (
         SensorDeviceClass.DATA_RATE,
     ),
 )
+_PER_BOX_SENSOR_KEYS = {
+    "flows",
+    "alarms",
+    "current_alarms",
+}
+_GLOBAL_SENSOR_KEYS = {
+    "flows",
+    "alarms",
+    "online_boxes",
+    "offline_boxes",
+    "download_last_5m",
+    "upload_last_5m",
+    "download_mbps",
+    "upload_mbps",
+    "top_region_blocked_flows",
+    "current_rules",
+    "rules",
+}
 
 
 async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> None:
@@ -209,7 +227,11 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
             continue
         entity_registry.async_remove(registry_entry.entity_id)
 
-    entities = []
+    entities = [
+        FirewallaTrendSensor(coordinator, entry, description)
+        for description in SENSOR_DESCRIPTIONS
+        if description.key in _GLOBAL_SENSOR_KEYS
+    ]
     boxes = coordinator.data.get("boxes", [])
     if not isinstance(boxes, list):
         boxes = []
@@ -224,7 +246,33 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
         entities.extend(
             FirewallaPerBoxSensor(coordinator, entry, box_gid, box_name, description)
             for description in SENSOR_DESCRIPTIONS
+            if description.key in _PER_BOX_SENSOR_KEYS
         )
+
+    network_bandwidth = coordinator.data.get("network_bandwidth", {})
+    if isinstance(network_bandwidth, dict):
+        for network_key, network in network_bandwidth.items():
+            if not isinstance(network, dict):
+                continue
+            box_gid = str(network.get("gid") or "").strip()
+            network_name = str(network.get("display_name") or network.get("name") or "").strip()
+            if not network_key or not network_name or not box_gid:
+                continue
+            entities.extend(
+                FirewallaPerBoxNetworkBandwidthSensor(
+                    coordinator,
+                    entry,
+                    box_gid,
+                    network_key,
+                    network_name,
+                    metric_key,
+                    metric_name,
+                    icon,
+                    unit,
+                    device_class,
+                )
+                for metric_key, metric_name, icon, unit, device_class in _BANDWIDTH_SENSOR_METRICS
+            )
 
     async_add_entities(entities)
 
@@ -601,6 +649,126 @@ class FirewallaPerBoxSensor(FirewallaBaseSensor):
             return {"source": "top_stats", "stats_type": "topBoxesBySecurityAlarms", **box_attrs}
 
         return {"source": "unsupported_box_metric", **box_attrs}
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated coordinator data."""
+        self.async_write_ha_state()
+
+
+class FirewallaPerBoxNetworkBandwidthSensor(FirewallaBaseSensor):
+    """Representation of a per-network bandwidth sensor attached to a box device."""
+
+    def __init__(
+        self,
+        coordinator,
+        entry: ConfigEntry,
+        box_gid: str,
+        network_key: str,
+        network_name: str,
+        metric_key: str,
+        metric_name: str,
+        icon: str,
+        unit,
+        device_class,
+    ) -> None:
+        """Initialize the per-box network sensor."""
+        super().__init__(coordinator, entry)
+        self._box_gid = box_gid
+        self._network_key = network_key
+        self._network_name = network_name
+        self._metric_key = metric_key
+        self._attr_name = f"{network_name} {metric_name}"
+        self._attr_unique_id = f"{entry.entry_id}_box_{box_gid}_network_{network_key}_{metric_key}"
+        self._attr_suggested_object_id = (
+            f"firewalla_{_slugify(self._box_gid)}_{_slugify(network_name)}_{metric_key}"
+        )
+        self._attr_icon = icon
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return parent box device metadata."""
+        boxes = self.coordinator.data.get("boxes", [])
+        box_name = self._box_gid
+        box_model = "MSP API"
+        if isinstance(boxes, list):
+            for box in boxes:
+                if not isinstance(box, dict):
+                    continue
+                if str(box.get("gid") or "").strip() != self._box_gid:
+                    continue
+                box_name = str(box.get("name") or self._box_gid)
+                box_model = str(box.get("model") or "MSP API")
+                break
+
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._entry.entry_id}_box_{self._box_gid}")},
+            name=f"Firewalla {box_name}",
+            manufacturer="Firewalla",
+            model=box_model,
+            configuration_url=self.coordinator.client.base_url,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return whether the sensor is available."""
+        capabilities = self.coordinator.data.get("capabilities", {})
+        if not isinstance(capabilities, dict):
+            return False
+        return bool(capabilities.get("network_bandwidth"))
+
+    @property
+    def native_value(self) -> int | float | None:
+        """Return the sensor state."""
+        if not self.available:
+            return None
+        network_bandwidth = self.coordinator.data.get("network_bandwidth", {})
+        if not isinstance(network_bandwidth, dict):
+            return None
+        network = network_bandwidth.get(self._network_key, {})
+        if not isinstance(network, dict):
+            return 0
+        value = network.get(self._metric_key)
+        if not isinstance(value, (int, float)):
+            return 0
+        if self._metric_key.endswith("_bytes"):
+            return _bytes_to_gigabytes(value)
+        return value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Return network metadata."""
+        attrs = self._scope_attributes()
+        network_bandwidth = self.coordinator.data.get("network_bandwidth", {})
+        if not isinstance(network_bandwidth, dict):
+            return {"source": "grouped_flows_by_network", **attrs}
+        network = network_bandwidth.get(self._network_key, {})
+        if not isinstance(network, dict):
+            return {
+                "source": "grouped_flows_by_network",
+                "network_key": self._network_key,
+                "network_name": self._network_name,
+                "box_gid": self._box_gid,
+                **attrs,
+            }
+        return {
+            "source": "grouped_flows_by_network",
+            "network_key": self._network_key,
+            "network_id": network.get("id"),
+            "network_name": network.get("display_name") or network.get("name"),
+            "network_type": network.get("type"),
+            "box_gid": self._box_gid,
+            "box_name": network.get("box_name"),
+            "raw_download_bytes": network.get("download_bytes"),
+            "raw_upload_bytes": network.get("upload_bytes"),
+            "flow_count": network.get("flow_count"),
+            "window_minutes": network.get("window_minutes"),
+            "window_seconds": network.get("window_seconds"),
+            **attrs,
+        }
 
     @callback
     def _handle_coordinator_update(self) -> None:

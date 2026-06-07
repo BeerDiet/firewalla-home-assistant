@@ -7,9 +7,12 @@ from types import SimpleNamespace
 from custom_components.firewalla.api import TrendPoint
 from custom_components.firewalla.const import SCOPE_GROUP
 from custom_components.firewalla.sensor import (
+    _GLOBAL_SENSOR_KEYS,
+    _PER_BOX_SENSOR_KEYS,
     SENSOR_DESCRIPTIONS,
     FirewallaBoxBandwidthSensor,
     FirewallaNetworkBandwidthSensor,
+    FirewallaPerBoxNetworkBandwidthSensor,
     FirewallaPerBoxSensor,
     FirewallaTrendSensor,
     _bytes_to_gigabytes,
@@ -379,7 +382,7 @@ def test_per_box_sensor_value_and_attrs() -> None:
 
 
 def test_per_box_sensor_uses_top_stats_and_box_metadata() -> None:
-    """Test per-box sensors derive counts and online status from box data."""
+    """Test per-box sensors derive counts from box-scoped top stats."""
     entry = _entry()
     coordinator = _coordinator()
 
@@ -388,13 +391,6 @@ def test_per_box_sensor_uses_top_stats_and_box_metadata() -> None:
         coordinator, entry, "g1", "Branch Box", blocked_description
     )
     assert blocked_sensor.native_value == 8
-
-    online_description = next(item for item in SENSOR_DESCRIPTIONS if item.key == "online_boxes")
-    online_sensor = FirewallaPerBoxSensor(
-        coordinator, entry, "g1", "Branch Box", online_description
-    )
-    assert online_sensor.native_value == 1
-    assert online_sensor.extra_state_attributes["source"] == "boxes"
 
 
 async def test_async_setup_entry_adds_supported_per_box_entities() -> None:
@@ -409,7 +405,7 @@ async def test_async_setup_entry_adds_supported_per_box_entities() -> None:
 
     await async_setup_entry(hass, entry, _add_entities)
 
-    assert len(added) == len(SENSOR_DESCRIPTIONS)
+    assert len(added) == len(_GLOBAL_SENSOR_KEYS) + len(_PER_BOX_SENSOR_KEYS) + 4
 
 
 async def test_async_setup_entry_ignores_network_rows() -> None:
@@ -429,5 +425,28 @@ async def test_async_setup_entry_ignores_network_rows() -> None:
 
     await async_setup_entry(hass, entry, _add_entities)
 
-    expected = len(SENSOR_DESCRIPTIONS)
+    expected = len(_GLOBAL_SENSOR_KEYS)
     assert len(added) == expected
+
+
+def test_per_box_network_bandwidth_sensor_value_and_attrs() -> None:
+    """Test per-box network bandwidth sensors attach to the box device."""
+    entry = _entry()
+    coordinator = _coordinator()
+    sensor = FirewallaPerBoxNetworkBandwidthSensor(
+        coordinator,
+        entry,
+        "g1",
+        "g1::net1",
+        "Main LAN",
+        "download_mbps",
+        "Download Mbps",
+        "mdi:speedometer",
+        "Mbps",
+        None,
+    )
+
+    assert sensor.available is True
+    assert sensor.native_value == 2.5
+    assert sensor.device_info["name"] == "Firewalla Branch Box"
+    assert sensor.extra_state_attributes["network_name"] == "Main LAN"
