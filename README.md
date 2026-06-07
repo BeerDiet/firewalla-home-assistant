@@ -7,16 +7,16 @@ This integration connects to a Firewalla MSP endpoint with a personal access tok
 - Blocked flows, alarms, and rules
 - Online and offline box counts
 - Current alarms and rules
-- Top-box and top-region statistics
-- Aggregate download/upload traffic
-- Per-box download/upload traffic
-- Per-network download/upload traffic
+- Top-region statistics
+- Main-device aggregate download/upload traffic
+- Per-box security/activity sensors
+- Per-network download/upload traffic under each box device
 
 ## Sensors created
 
-The integration can create the following sensor groups.
+The integration creates sensors in two places when `global` or `group` scope is used:
 
-Global and group scopes:
+Main integration device:
 
 - `Blocked Flows`
 - `Alarms`
@@ -33,35 +33,27 @@ Global and group scopes:
 - `Download Mbps`
 - `Upload Mbps`
 
-Box scope:
+Per-box devices:
 
-- `Download Recent Volume`
-- `Upload Recent Volume`
-- `Download Mbps`
-- `Upload Mbps`
+For each Firewalla box returned in the selected global or group scope, the integration creates:
 
-Dynamic per-network sensors:
+- `<Box Name> Blocked Flows`
+- `<Box Name> Alarms`
+- `<Box Name> Current Alarms`
 
-For each network returned by the Firewalla API, the integration also creates:
+Per-box network sensors:
+
+Under each Firewalla box device, the integration also creates:
 
 - `<Network Name> Download Recent Volume`
 - `<Network Name> Upload Recent Volume`
 - `<Network Name> Download Mbps`
 - `<Network Name> Upload Mbps`
 
-Dynamic per-box sensors:
-
-For each Firewalla box returned in the selected global or group scope, the integration also creates:
-
-- `<Box Name> Download Recent Volume`
-- `<Box Name> Upload Recent Volume`
-- `<Box Name> Download Mbps`
-- `<Box Name> Upload Mbps`
-
 Notes:
 
-- Per-box sensors are deduplicated by Firewalla `gid`, so a box is only added once even if multiple grouped flow rows refer to it.
-- Per-network sensors are only created when grouped flow and device data are available.
+- Per-box devices are deduplicated by Firewalla `gid`, so a box is only added once even if multiple grouped flow rows refer to it.
+- Per-box network sensors are only created when grouped flow and device data are available.
 - Network names are automatically qualified when duplicate names exist across boxes.
 - Some sensor groups may remain unavailable when the configured scope or token cannot access the required endpoint.
 
@@ -75,9 +67,9 @@ The integration supports three scopes:
 
 The configured scope affects which sensors can exist:
 
-- `global` and `group` scopes can expose trend, simple-stat, top-stat, aggregate bandwidth, dynamic per-box bandwidth sensors, and per-network bandwidth sensors
-- `box` scope can expose aggregate bandwidth and per-network bandwidth sensors
-- `box` scope does not create trend or top-stat sensors because the MSP API does not expose those endpoints per box
+- `global` and `group` scopes can expose main-device aggregate sensors plus one device per discovered Firewalla box
+- Each discovered box device can expose per-box security/activity sensors and per-network bandwidth sensors
+- `box` scope behavior is narrower and depends on the MSP API responses for that specific box
 
 During setup and updates, the integration records endpoint capabilities and degrades gracefully when optional endpoints are unavailable. That means a token or scope that cannot use one endpoint can still load and publish the sensors supported by the remaining endpoints.
 
@@ -140,8 +132,8 @@ After setup, the integration options let you change:
 
 - This integration uses config entries and is configured entirely in the UI.
 - Sensors are based on the Firewalla MSP API and depend on the data your token and scope can access.
-- Per-network bandwidth sensors are created dynamically from network data returned by the API.
-- Aggregate and per-network throughput sensors are derived from grouped flow data over the integration's recent traffic window.
+- Per-network bandwidth sensors are created dynamically from network data returned by the API and are attached to the owning box device.
+- Aggregate throughput sensors on the main integration device are derived from grouped flow data over the integration's recent traffic window.
 - The legacy `*_last_5m` entity IDs are retained for compatibility, but they now represent the current recent-volume window exposed by the integration.
 - `Download Recent Volume` and `Upload Recent Volume` sensors are rolling byte totals over the configured recent traffic window, not instantaneous throughput. Their state is shown in `GB`, and the raw byte totals remain available in attributes like `raw_download_bytes` and `raw_upload_bytes`.
 - Check each sensor's `window_seconds` attribute for the exact rolling period used by the current version.
@@ -168,8 +160,8 @@ This makes it easier to understand why a given MSP tenant or scope exposes only 
   Confirm the base URL is reachable from Home Assistant, the MSP endpoint is online, and any reverse proxy or firewall rules allow the request.
 - `unknown_box`:
   The configured box `gid` does not exist in the tenant visible to the provided token.
-- Missing trend or top-stat sensors for a box scope:
-  This is expected. Box scope only exposes aggregate and per-network bandwidth sensors.
+- Missing some per-box sensors:
+  This can be expected if the MSP API does not expose matching box-level data for that metric. Per-box network bandwidth depends on grouped flow plus device/network data.
 - Missing some entity groups for a global or group scope:
   The integration degrades gracefully when optional Firewalla endpoints return `403`, `404`, or other endpoint-specific failures. Check diagnostics for `capabilities` and `endpoint_errors`.
 - SSL verification failures:
@@ -179,8 +171,8 @@ This makes it easier to understand why a given MSP tenant or scope exposes only 
 
 Example dashboards are included in [`examples/`](./examples):
 
-- [`dashboard-basic.yaml`](./examples/dashboard-basic.yaml) uses built-in Lovelace cards only and sticks to aggregate Internet sensors so it works across `global`, `group`, and `box` scopes.
-- [`dashboard-mini-graph.yaml`](./examples/dashboard-mini-graph.yaml) uses `mini-graph-card` for historical throughput charts and the same aggregate Internet sensors for maximum scope compatibility.
+- [`dashboard-basic.yaml`](./examples/dashboard-basic.yaml) uses built-in Lovelace cards only and focuses on the main integration device sensors.
+- [`dashboard-mini-graph.yaml`](./examples/dashboard-mini-graph.yaml) uses `mini-graph-card` for historical throughput charts on the main integration device sensors.
 
 These examples are intentionally generic and optional. They are not installed by the integration and can be adapted to your own dashboard structure.
 
@@ -189,7 +181,7 @@ Notes for the examples:
 - The example entity IDs assume a global-scope entry named `Firewalla`, which produces entities like `sensor.firewalla_global_msp_download_mbps` and `sensor.firewalla_global_msp_download_recent_volume`. If you use a different title or scope, adapt the entity IDs to the names Home Assistant creates for your entry.
 - `sensor.firewalla_global_msp_rule_activity` is recent `Rule Activity`, not your configured rule count. Use `sensor.firewalla_global_msp_current_rules` when you want the current total.
 - Recent-volume entities should be labeled generically as `Recent Volume`, with the active range read from each entity's `window_minutes` attribute or from your configured integration option.
-- Wired, wireless, and WireGuard sensors are scope-dependent. Add them only if your configured Firewalla scope actually exposes those entities.
+- Wired, wireless, and WireGuard sensors now live under each Firewalla box device when the API exposes those networks.
 
 ## Development
 
