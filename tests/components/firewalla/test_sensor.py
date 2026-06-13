@@ -10,6 +10,7 @@ from custom_components.firewalla.sensor import (
     _GLOBAL_SENSOR_KEYS,
     _PER_BOX_SENSOR_KEYS,
     SENSOR_DESCRIPTIONS,
+    FirewallaBaseSensor,
     FirewallaPerBoxNetworkBandwidthSensor,
     FirewallaPerBoxSensor,
     FirewallaPerDeviceTrafficSensor,
@@ -295,6 +296,43 @@ def test_per_device_traffic_sensor_value_and_attrs() -> None:
     assert sensor.extra_state_attributes["raw_total_bytes"] == 1_500
 
 
+def test_base_sensor_scope_fallback_and_device_info() -> None:
+    """Test base sensor falls back when scope payload is malformed."""
+    entry = _entry()
+    coordinator = _coordinator()
+    coordinator.data["scope"] = "bad"
+    sensor = FirewallaBaseSensor(coordinator, entry)
+
+    assert sensor.device_info["name"] == "Firewalla global"
+    assert sensor._scope_attributes()["scope_type"] == "global"
+
+
+def test_per_device_traffic_sensor_handles_missing_or_invalid_payloads() -> None:
+    """Test per-device traffic fallback paths."""
+    entry = _entry()
+    coordinator = _coordinator()
+    sensor = FirewallaPerDeviceTrafficSensor(
+        coordinator, entry, "g1", "dev-1", "Laptop"
+    )
+
+    coordinator.data["device_traffic"] = "bad"
+    assert sensor.native_value == 0
+    assert sensor.extra_state_attributes["rank"] is None
+
+    coordinator.data["capabilities"] = "bad"
+    assert sensor.available is False
+    assert sensor.native_value is None
+
+    coordinator.data["capabilities"] = {"top_talkers": True}
+    coordinator.data["device_traffic"] = [{"device_id": "other", "gid": "g1"}]
+    assert sensor.extra_state_attributes["raw_total_bytes"] == 0
+
+    coordinator.data["device_traffic"] = [
+        {"device_id": "dev-1", "gid": "g1", "total_bytes": "bad"}
+    ]
+    assert sensor.native_value == 0
+
+
 def test_trend_sensor_formats_recent_volume_in_gigabytes() -> None:
     """Test recent volume sensors display GB while keeping raw bytes in attrs."""
     entry = _entry()
@@ -342,6 +380,30 @@ def test_trend_sensor_handles_invalid_source_payloads() -> None:
     bandwidth_sensor = FirewallaTrendSensor(coordinator, entry, bandwidth_description)
     assert bandwidth_sensor.native_value is None
 
+    simple_description = next(
+        item for item in SENSOR_DESCRIPTIONS if item.key == "online_boxes"
+    )
+    coordinator.data["simple_stats"] = "bad"
+    simple_sensor = FirewallaTrendSensor(coordinator, entry, simple_description)
+    assert simple_sensor.native_value is None
+
+    talker_description = next(
+        item for item in SENSOR_DESCRIPTIONS if item.key == "top_talkers"
+    )
+    coordinator.data["top_talkers"] = [{}]
+    talker_sensor = FirewallaTrendSensor(coordinator, entry, talker_description)
+    assert talker_sensor.native_value == 0
+    assert talker_sensor.extra_state_attributes["results"] == [{}]
+
+    coordinator.data["top_talkers"] = "bad"
+    assert talker_sensor.extra_state_attributes["results"] == []
+
+    coordinator.data["trends"] = "bad"
+    trend_description = next(item for item in SENSOR_DESCRIPTIONS if item.key == "flows")
+    trend_sensor = FirewallaTrendSensor(coordinator, entry, trend_description)
+    assert trend_sensor.native_value is None
+    assert trend_sensor.extra_state_attributes["source"] == "trends"
+
 
 def test_per_box_sensor_value_and_attrs() -> None:
     """Test per-box sensors use box-scoped data."""
@@ -367,6 +429,30 @@ def test_per_box_sensor_uses_top_stats_and_box_metadata() -> None:
         coordinator, entry, "g1", "Branch Box", blocked_description
     )
     assert blocked_sensor.native_value == 8
+
+
+def test_per_box_sensor_fallback_paths() -> None:
+    """Test per-box sensor fallbacks and malformed payload handling."""
+    entry = _entry()
+    coordinator = _coordinator()
+    description = next(item for item in SENSOR_DESCRIPTIONS if item.key == "flows")
+    sensor = FirewallaPerBoxSensor(coordinator, entry, "g2", "Missing Box", description)
+
+    coordinator.data["boxes"] = "bad"
+    coordinator.data["box_bandwidth"] = {"g2": {"name": "Fallback Box", "model": "FWX"}}
+    assert sensor.device_info["name"] == "Firewalla Fallback Box"
+
+    coordinator.data["top_stats"] = "bad"
+    assert sensor.native_value is None
+
+    coordinator.data["top_stats"] = {"topBoxesByBlockedFlows": "bad"}
+    assert sensor.native_value is None
+
+    coordinator.data["top_stats"] = {"topBoxesByBlockedFlows": [{"meta": "bad", "value": 1}]}
+    assert sensor.native_value == 0
+
+    coordinator.data["capabilities"] = "bad"
+    assert sensor.available is False
 
 
 async def test_async_setup_entry_adds_supported_per_box_entities() -> None:
@@ -429,3 +515,40 @@ def test_per_box_network_bandwidth_sensor_value_and_attrs() -> None:
     assert sensor.native_value == 2.5
     assert sensor.device_info["name"] == "Firewalla Branch Box"
     assert sensor.extra_state_attributes["network_name"] == "Main LAN"
+
+
+def test_per_box_network_bandwidth_sensor_fallback_paths() -> None:
+    """Test per-network sensor fallbacks for malformed payloads."""
+    entry = _entry()
+    coordinator = _coordinator()
+    sensor = FirewallaPerBoxNetworkBandwidthSensor(
+        coordinator,
+        entry,
+        "missing",
+        "missing::net1",
+        "Fallback Net",
+        "download_bytes",
+        "Download Recent Volume",
+        "mdi:download",
+        "GB",
+        None,
+    )
+
+    coordinator.data["boxes"] = "bad"
+    assert sensor.device_info["name"] == "Firewalla missing"
+
+    coordinator.data["capabilities"] = "bad"
+    assert sensor.available is False
+    assert sensor.native_value is None
+
+    coordinator.data["capabilities"] = {"network_bandwidth": True}
+    coordinator.data["network_bandwidth"] = "bad"
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes["source"] == "grouped_flows_by_network"
+
+    coordinator.data["network_bandwidth"] = {"missing::net1": "bad"}
+    assert sensor.native_value == 0
+    assert sensor.extra_state_attributes["network_name"] == "Fallback Net"
+
+    coordinator.data["network_bandwidth"] = {"missing::net1": {"download_bytes": "bad"}}
+    assert sensor.native_value == 0
