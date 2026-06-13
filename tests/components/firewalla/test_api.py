@@ -180,6 +180,19 @@ async def test_async_get_simple_stats_parses_known_keys() -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_get_simple_stats_passes_group_param() -> None:
+    """Test simple stats include the group query parameter."""
+    session = MockSession(MockResponse({"onlineBoxes": "1"}))
+    client = FirewallaApiClient(
+        session, "https://example.firewalla.net", "token", verify_ssl=True
+    )
+
+    await client.async_get_simple_stats(group="branch")
+
+    assert session.calls[0]["params"] == {"group": "branch"}
+
+
+@pytest.mark.asyncio
 async def test_async_get_simple_stats_rejects_non_dict_payload() -> None:
     """Test simple stats endpoint rejects invalid payload shape."""
     client = FirewallaApiClient(
@@ -216,6 +229,33 @@ async def test_async_get_statistics_filters_invalid_entries() -> None:
         {"meta": {"name": "A", "gid": "7"}, "value": 10},
         {"meta": {}, "value": 11},
     ]
+
+
+@pytest.mark.asyncio
+async def test_async_get_statistics_passes_group_param() -> None:
+    """Test stats requests include the group query parameter."""
+    session = MockSession(MockResponse([{"meta": {"name": "A"}, "value": 1}]))
+    client = FirewallaApiClient(
+        session, "https://example.firewalla.net", "token", verify_ssl=True
+    )
+
+    await client.async_get_statistics("topBoxesByBlockedFlows", group="branch")
+
+    assert session.calls[0]["params"] == {"limit": "5", "group": "branch"}
+
+
+@pytest.mark.asyncio
+async def test_async_get_statistics_skips_non_dict_items() -> None:
+    """Test stats parsing skips malformed list items."""
+    client = FirewallaApiClient(
+        MockSession(MockResponse(["skip", {"meta": {"name": "A"}, "value": 1}])),
+        "https://example.firewalla.net",
+        "token",
+        verify_ssl=True,
+    )
+
+    result = await client.async_get_statistics("topBoxesByBlockedFlows")
+    assert result == [{"meta": {"name": "A"}, "value": 1}]
 
 
 @pytest.mark.asyncio
@@ -300,6 +340,20 @@ async def test_async_get_devices_rejects_invalid_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_get_devices_rejects_non_container_payload() -> None:
+    """Test devices endpoint rejects non-container payloads."""
+    client = FirewallaApiClient(
+        MockSession(MockResponse("bad")),
+        "https://example.firewalla.net",
+        "token",
+        verify_ssl=True,
+    )
+
+    with pytest.raises(FirewallaApiError, match="invalid_response"):
+        await client.async_get_devices()
+
+
+@pytest.mark.asyncio
 async def test_async_get_grouped_flows_and_flows_validate_payloads() -> None:
     """Test flow endpoints parsing."""
     grouped_session = MockSession(MockResponse({"results": [{"id": 1}, "skip"]}))
@@ -350,10 +404,38 @@ async def test_async_get_grouped_flows_rejects_invalid_results_shape() -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_get_grouped_flows_rejects_non_dict_payload() -> None:
+    """Test grouped flows endpoint rejects non-dict payloads."""
+    client = FirewallaApiClient(
+        MockSession(MockResponse([])),
+        "https://example.firewalla.net",
+        "token",
+        verify_ssl=True,
+    )
+
+    with pytest.raises(FirewallaApiError, match="invalid_response"):
+        await client.async_get_grouped_flows()
+
+
+@pytest.mark.asyncio
 async def test_async_get_flows_rejects_invalid_payload_shape() -> None:
     """Test flows endpoint rejects invalid payload shape."""
     client = FirewallaApiClient(
         MockSession(MockResponse({"results": "bad", "next_cursor": "next"})),
+        "https://example.firewalla.net",
+        "token",
+        verify_ssl=True,
+    )
+
+    with pytest.raises(FirewallaApiError, match="invalid_response"):
+        await client.async_get_flows()
+
+
+@pytest.mark.asyncio
+async def test_async_get_flows_rejects_non_dict_payload() -> None:
+    """Test flows endpoint rejects non-dict payloads."""
+    client = FirewallaApiClient(
+        MockSession(MockResponse([])),
         "https://example.firewalla.net",
         "token",
         verify_ssl=True,
@@ -388,6 +470,26 @@ async def test_async_get_rules_parses_payload_and_query_params() -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_get_rules_rejects_invalid_payload_shapes() -> None:
+    """Test rules endpoint rejects malformed payloads."""
+    payloads = [
+        MockResponse([]),
+        MockResponse({"results": "bad", "next_cursor": 1}),
+    ]
+
+    for payload in payloads:
+        client = FirewallaApiClient(
+            MockSession(payload),
+            "https://example.firewalla.net",
+            "token",
+            verify_ssl=True,
+        )
+
+        with pytest.raises(FirewallaApiError, match="invalid_response"):
+            await client.async_get_rules()
+
+
+@pytest.mark.asyncio
 async def test_async_create_rule_posts_json_payload() -> None:
     """Test rule creation."""
     session = MockSession(MockResponse({"id": "rule-1"}))
@@ -403,6 +505,20 @@ async def test_async_create_rule_posts_json_payload() -> None:
     assert result == {"id": "rule-1"}
     assert session.calls[0]["method"] == "POST"
     assert session.calls[0]["json"] == {"action": "block"}
+
+
+@pytest.mark.asyncio
+async def test_async_create_rule_rejects_non_dict_payload() -> None:
+    """Test rule creation rejects invalid payloads."""
+    client = FirewallaApiClient(
+        MockSession(MockResponse([])),
+        "https://example.firewalla.net",
+        "token",
+        verify_ssl=True,
+    )
+
+    with pytest.raises(FirewallaApiError, match="invalid_response"):
+        await client.async_create_rule({"action": "block"})
 
 
 @pytest.mark.asyncio

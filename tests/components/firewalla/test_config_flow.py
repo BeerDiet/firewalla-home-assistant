@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant import config_entries, data_entry_flow
+from homeassistant.const import CONF_NAME
 
 from custom_components.firewalla.api import FirewallaApiAuthError, FirewallaApiError
 from custom_components.firewalla.config_flow import (
@@ -375,6 +376,175 @@ async def test_reauth_flow_handles_invalid_auth(hass) -> None:
     assert result["errors"] == {"base": "invalid_auth"}
 
 
+async def test_reauth_flow_handles_connection_error(hass) -> None:
+    """Test reauth surfaces connection errors."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla",
+        data={
+            "name": "Firewalla",
+            CONF_BASE_URL: "https://old.firewalla.net",
+            "token": "old-token",
+            CONF_SCOPE_TYPE: SCOPE_GLOBAL,
+            CONF_SCAN_INTERVAL: 300,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
+            CONF_VERIFY_SSL: True,
+        },
+        unique_id="https://old.firewalla.net|global|global",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_REAUTH, "entry_id": entry.entry_id},
+        data=entry.data,
+    )
+
+    with patch(
+        "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",
+        new=AsyncMock(side_effect=FirewallaApiError),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"token": "new-token"},
+        )
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
+
+
+async def test_reauth_flow_handles_unknown_entry(hass) -> None:
+    """Test reauth aborts when the config entry is missing."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": "missing",
+        },
+        data={CONF_NAME: "Firewalla"},
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "unknown"
+
+
+async def test_reconfigure_flow_updates_entry(hass) -> None:
+    """Test reconfigure updates the existing config entry."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla",
+        data={
+            "name": "Firewalla",
+            CONF_BASE_URL: "https://old.firewalla.net",
+            "token": "old-token",
+            CONF_SCOPE_TYPE: SCOPE_GLOBAL,
+            CONF_SCAN_INTERVAL: 300,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
+            CONF_VERIFY_SSL: True,
+        },
+        unique_id="https://old.firewalla.net|global|global",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    with patch(
+        "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",
+        new=AsyncMock(),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                "name": "Firewalla",
+                CONF_BASE_URL: "https://new.firewalla.net",
+                "token": "new-token",
+                CONF_SCOPE_TYPE: SCOPE_GROUP,
+                CONF_SCOPE_ID: "branch-office",
+                CONF_VERIFY_SSL: False,
+            },
+        )
+
+    assert result["type"] is data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_BASE_URL] == "https://new.firewalla.net"
+    assert entry.data["token"] == "new-token"
+    assert entry.data[CONF_SCOPE_TYPE] == SCOPE_GROUP
+    assert entry.data[CONF_SCOPE_ID] == "branch-office"
+    assert entry.data[CONF_VERIFY_SSL] is False
+
+
+async def test_reconfigure_flow_aborts_on_conflict(hass) -> None:
+    """Test reconfigure rejects duplicate unique IDs."""
+    existing = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla Existing",
+        data={
+            "name": "Firewalla Existing",
+            CONF_BASE_URL: "https://new.firewalla.net",
+            "token": "token-2",
+            CONF_SCOPE_TYPE: SCOPE_GROUP,
+            CONF_SCOPE_ID: "branch-office",
+            CONF_SCAN_INTERVAL: 300,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
+            CONF_VERIFY_SSL: True,
+        },
+        unique_id="https://new.firewalla.net|group|branch-office",
+    )
+    existing.add_to_hass(hass)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla",
+        data={
+            "name": "Firewalla",
+            CONF_BASE_URL: "https://old.firewalla.net",
+            "token": "old-token",
+            CONF_SCOPE_TYPE: SCOPE_GLOBAL,
+            CONF_SCAN_INTERVAL: 300,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
+            CONF_VERIFY_SSL: True,
+        },
+        unique_id="https://old.firewalla.net|global|global",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+
+    with patch(
+        "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",
+        new=AsyncMock(),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                "name": "Firewalla",
+                CONF_BASE_URL: "https://new.firewalla.net",
+                "token": "new-token",
+                CONF_SCOPE_TYPE: SCOPE_GROUP,
+                CONF_SCOPE_ID: "branch-office",
+                CONF_VERIFY_SSL: True,
+            },
+        )
+
+    assert result["type"] is data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
 def test_build_schema_uses_defaults() -> None:
     """Test config flow schema defaults."""
     flow = FirewallaConfigFlow()
@@ -388,6 +558,12 @@ def test_build_schema_uses_defaults() -> None:
     assert serialized[CONF_SCAN_INTERVAL] == 60
     assert serialized[CONF_TRAFFIC_WINDOW_MINUTES] == DEFAULT_TRAFFIC_WINDOW_MINUTES
     assert serialized[CONF_VERIFY_SSL] is True
+
+
+def test_default_title_uses_global_scope_label() -> None:
+    """Test default title generation for global scope."""
+    flow = FirewallaConfigFlow()
+    assert flow._default_title(SCOPE_GLOBAL, "") == "Firewalla (global)"
 
 
 def test_options_flow_class_is_registered() -> None:

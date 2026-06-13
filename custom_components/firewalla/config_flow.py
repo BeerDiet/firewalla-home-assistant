@@ -96,6 +96,56 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(self, user_input=None):
+        """Handle reconfiguration for an existing config entry."""
+        entry = self._get_reconfigure_entry()
+        self.context["title_placeholders"] = {"name": entry.title}
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                normalized_base_url = normalize_base_url(user_input[CONF_BASE_URL])
+                normalized_input = self._normalize_user_input({**entry.data, **user_input})
+                await self._validate_input(normalized_base_url, normalized_input)
+                scope_key = (
+                    normalized_input[CONF_SCOPE_ID]
+                    if normalized_input[CONF_SCOPE_TYPE] != SCOPE_GLOBAL
+                    else SCOPE_GLOBAL
+                )
+                unique_id = (
+                    f"{normalized_base_url}|"
+                    f"{normalized_input[CONF_SCOPE_TYPE]}|"
+                    f"{scope_key}"
+                )
+                conflict_entry = self.hass.config_entries.async_entry_for_domain_unique_id(
+                    DOMAIN, unique_id
+                )
+                if conflict_entry and conflict_entry.entry_id != entry.entry_id:
+                    return self.async_abort(reason="already_configured")
+            except ValueError as err:
+                errors["base"] = str(err)
+            except FirewallaApiAuthError:
+                errors["base"] = "invalid_auth"
+            except FirewallaApiError:
+                errors["base"] = "cannot_connect"
+            else:
+                updated_data = {**entry.data, **normalized_input}
+                updated_data[CONF_BASE_URL] = normalized_base_url
+                if not updated_data[CONF_SCOPE_ID]:
+                    updated_data.pop(CONF_SCOPE_ID, None)
+                updated_data.pop(CONF_GROUP, None)
+                return self.async_update_reload_and_abort(
+                    entry,
+                    unique_id=unique_id,
+                    data=updated_data,
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self._build_reconfigure_schema(entry.data),
+            errors=errors,
+        )
+
     async def async_step_user(self, user_input=None):
         """Handle the initial config step."""
         errors: dict[str, str] = {}
@@ -231,6 +281,34 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     CONF_VERIFY_SSL,
                     default=user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
+                ): bool,
+            }
+        )
+
+    def _build_reconfigure_schema(self, entry_data: dict) -> vol.Schema:
+        """Build the reconfigure schema."""
+        return vol.Schema(
+            {
+                vol.Optional(
+                    CONF_NAME, default=entry_data.get(CONF_NAME, "Firewalla")
+                ): str,
+                vol.Required(
+                    CONF_BASE_URL,
+                    default=entry_data.get(
+                        CONF_BASE_URL, "https://dn-knzvvk.firewalla.net"
+                    ),
+                ): str,
+                vol.Required(CONF_TOKEN, default=entry_data.get(CONF_TOKEN, "")): str,
+                vol.Required(
+                    CONF_SCOPE_TYPE,
+                    default=entry_data.get(CONF_SCOPE_TYPE, SCOPE_GLOBAL),
+                ): vol.In(SCOPE_TYPES),
+                vol.Optional(
+                    CONF_SCOPE_ID, default=entry_data.get(CONF_SCOPE_ID, "")
+                ): str,
+                vol.Optional(
+                    CONF_VERIFY_SSL,
+                    default=entry_data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
                 ): bool,
             }
         )

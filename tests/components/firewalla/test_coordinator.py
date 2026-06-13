@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.firewalla.api import (
     FirewallaApiAuthError,
@@ -35,6 +36,8 @@ from custom_components.firewalla.coordinator import (
     _build_top_talkers_query,
     _compute_rate_mbps,
     _network_key,
+    _qualify_network_names,
+    _safe_int,
     _scope_from_entry,
     _traffic_window_minutes_from_entry,
 )
@@ -61,6 +64,7 @@ def test_helper_builders() -> None:
         SCOPE_GROUP,
         "legacy",
     )
+    assert _safe_int(object()) == 0
     assert _traffic_window_minutes_from_entry(SimpleNamespace(data={}, options={})) == (
         DEFAULT_TRAFFIC_WINDOW_MINUTES
     )
@@ -70,6 +74,20 @@ def test_helper_builders() -> None:
     assert _traffic_window_minutes_from_entry(
         SimpleNamespace(data={}, options={CONF_TRAFFIC_WINDOW_MINUTES: 30})
     ) == 30
+    assert _traffic_window_minutes_from_entry(
+        SimpleNamespace(data={}, options={CONF_TRAFFIC_WINDOW_MINUTES: "bad"})
+    ) == DEFAULT_TRAFFIC_WINDOW_MINUTES
+
+    qualified = _build_known_networks(
+        [{"gid": "gid-1", "network": {"id": "1", "name": "LAN"}}],
+        {"gid-1": {"gid": "gid-1", "name": "Box One", "model": "FW1"}},
+    )
+    qualified = {
+        "empty": {"name": "", "box_name": "Box One"},
+        **qualified,
+    }
+    qualified = _qualify_network_names(qualified)
+    assert "display_name" not in qualified["empty"]
 
 
 def test_top_talker_builder_sorts_and_limits() -> None:
@@ -110,6 +128,36 @@ def test_top_talker_builder_sorts_and_limits() -> None:
     assert len(top_talkers) == 1
     assert top_talkers[0]["device_id"] == "dev-2"
     assert top_talkers[0]["total_bytes"] == 2_000
+
+
+def test_top_talker_builder_skips_malformed_rows() -> None:
+    """Test top talker aggregation skips malformed records."""
+    top_talkers = _build_top_talkers(
+        [
+            {"blocked": True, "gid": "gid-1", "device": {"id": "dev-0"}},
+            {"gid": "gid-1", "device": "bad"},
+            {"gid": "gid-1", "device": {"name": "No ID"}},
+            {"device": {"id": "dev-2", "name": "Missing Box"}},
+            {
+                "gid": "gid-1",
+                "device": {"id": "dev-3", "name": "Desktop"},
+                "network": "bad",
+                "download": "bad",
+                "upload": 50,
+                "count": "bad",
+            },
+        ],
+        60,
+        1,
+        {"gid-1": {"name": "Box One", "model": "FW1"}},
+        limit=None,
+    )
+
+    assert len(top_talkers) == 1
+    assert top_talkers[0]["device_id"] == "dev-3"
+    assert top_talkers[0]["network_name"] is None
+    assert top_talkers[0]["download_bytes"] == 0
+    assert top_talkers[0]["flow_count"] == 1
 
 
 def test_scope_info_and_bandwidth_helpers() -> None:
@@ -250,6 +298,55 @@ def test_box_bandwidth_merges_missing_gid_into_only_known_box() -> None:
     assert sorted(box_bandwidth.keys()) == ["gid-1"]
     assert box_bandwidth["gid-1"]["name"] == "Tudor Firewalla"
     assert box_bandwidth["gid-1"]["download_bytes"] == 1_250_000
+
+
+def test_bandwidth_builders_skip_malformed_rows() -> None:
+    """Test network and box bandwidth builders skip malformed records."""
+    known_networks = {
+        "gid-1::1": {
+            "id": "1",
+            "name": "LAN",
+            "display_name": "LAN",
+            "gid": "gid-1",
+            "box_name": "Box One",
+            "box_model": "FW1",
+            "type": "lan",
+        }
+    }
+    boxes = {
+        "gid-1": {"gid": "gid-1", "name": "Box One", "model": "FW1"},
+        "gid-2": {"gid": "gid-2", "name": "Box Two", "model": "FW2"},
+    }
+    network_bandwidth = _build_network_bandwidth(
+        known_networks,
+        [
+            {"gid": "gid-1", "network": {"id": "", "name": "skip"}},
+            {"gid": "gid-1", "network": "bad"},
+            {
+                "gid": "gid-1",
+                "network": {"id": "1", "name": "LAN"},
+                "download": 10,
+                "upload": 20,
+                "count": 1,
+            },
+        ],
+        60,
+        1,
+        boxes,
+    )
+    assert network_bandwidth["gid-1::1"]["download_bytes"] == 10
+
+    box_bandwidth = _build_box_bandwidth(
+        [
+            {"network": {"id": "1", "name": "LAN"}, "download": 10},
+            {"gid": "gid-1", "network": {"id": "1", "name": "LAN"}, "download": 20},
+            {"gid": "gid-1", "network": {"id": "1", "name": "LAN"}, "blocked": True},
+        ],
+        60,
+        1,
+        boxes,
+    )
+    assert box_bandwidth["gid-1"]["download_bytes"] == 20
 
 
 class MockClient:
@@ -564,6 +661,81 @@ async def test_coordinator_update_transport_failure_when_no_endpoint_works(hass)
     assert result["endpoint_errors"]["boxes"] == "cannot_connect"
     assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
     assert result["network_bandwidth"] == {}
+
+
+@pytest.mark.asyncio
+async def test_coordinator_returns_empty_payload_when_all_optional_endpoints_fail(
+    hass,
+) -> None:
+    """Test temporary failures across all endpoints return an empty payload."""
+
+    class TempFailClient(MockClient):
+        async def async_get_boxes(self, *, group: str | None = None):
+            raise FirewallaApiError("cannot_connect")
+
+        async def async_get_trend(self, trend_type: str, group: str | None):
+            raise FirewallaApiError("cannot_connect")
+
+        async def async_get_simple_stats(self, group: str | None):
+            raise FirewallaApiError("cannot_connect")
+
+        async def async_get_statistics(
+            self, stats_type: str, *, group: str | None, limit: int
+        ):
+            raise FirewallaApiError("cannot_connect")
+
+        async def async_get_devices(
+            self, *, group: str | None = None, box: str | None = None
+        ):
+            raise FirewallaApiError("cannot_connect")
+
+        async def async_get_grouped_flows(
+            self, *, query: str | None = None, group_by: str = "network", limit: int = 100
+        ):
+            raise FirewallaApiError("cannot_connect")
+
+        async def async_get_flows(
+            self, *, query: str | None = None, limit: int = 500, cursor: str | None = None
+        ):
+            raise FirewallaApiError("cannot_connect")
+
+    entry = SimpleNamespace(
+        data={"name": DOMAIN, "scan_interval": 300, CONF_SCOPE_TYPE: SCOPE_GLOBAL},
+        options={},
+    )
+    coordinator = FirewallaTrendsCoordinator(hass, entry, TempFailClient())
+
+    result = await coordinator._async_update_data()
+
+    assert result["boxes"] == []
+    assert result["capabilities"]["boxes"] is False
+    assert result["capabilities"]["top_talkers"] is False
+    assert result["endpoint_errors"]["boxes"] == "cannot_connect"
+    assert result["bandwidth"]["download_bytes"] == 0
+    assert result["top_talkers"] == []
+
+
+@pytest.mark.asyncio
+async def test_coordinator_wraps_unexpected_firewalla_error(hass) -> None:
+    """Test unexpected Firewalla errors are converted into update failures."""
+
+    entry = SimpleNamespace(
+        data={"name": DOMAIN, "scan_interval": 300, CONF_SCOPE_TYPE: SCOPE_GLOBAL},
+        options={},
+    )
+    coordinator = FirewallaTrendsCoordinator(hass, entry, MockClient())
+
+    with pytest.raises(UpdateFailed, match="boom"):
+        def _raise_boom(*args, **kwargs):
+            raise FirewallaApiError("boom")
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                "custom_components.firewalla.coordinator._build_scope_info",
+                _raise_boom,
+            )
+            await coordinator._async_update_data()
+
 
 
 @pytest.mark.asyncio

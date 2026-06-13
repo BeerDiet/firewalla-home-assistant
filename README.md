@@ -55,7 +55,7 @@ Under each Firewalla box device, the integration also creates:
 
 Switches created:
 
-For each discovered Firewalla device and local network, the integration creates:
+For each Firewalla device and local network returned by the API, the integration creates:
 
 - `<Device Name> Internet Block`
 - `<Network Name> Internet Block`
@@ -79,8 +79,8 @@ The integration supports three scopes:
 
 The configured scope affects which sensors can exist:
 
-- `global` and `group` scopes can expose main-device aggregate sensors plus one device per discovered Firewalla box
-- Each discovered box device can expose per-box security/activity sensors, per-box top-talker sensors, per-network bandwidth sensors, device internet-block switches, and network internet-block switches
+- `global` and `group` scopes can expose main-device aggregate sensors plus one device per Firewalla box returned by the API
+- Each Firewalla box returned by the API can expose per-box security/activity sensors, per-box top-talker sensors, per-network bandwidth sensors, device internet-block switches, and network internet-block switches
 - `box` scope behavior is narrower and depends on the MSP API responses for that specific box
 
 During setup and updates, the integration records endpoint capabilities and degrades gracefully when optional endpoints are unavailable. That means a token or scope that cannot use one endpoint can still load and publish the sensors supported by the remaining endpoints.
@@ -140,13 +140,89 @@ After setup, the integration options let you change:
 - `Scan interval`
 - `Traffic window`
 
+You can also use the Home Assistant reconfigure flow on an existing Firewalla entry to change the base URL, token, scope type, scope ID, or SSL setting without removing and re-adding the integration.
+
+## Supported functions
+
+The integration currently exposes these Home Assistant features:
+
+- Box-level sensors for blocked flows, alarms, current alarms, and top talkers
+- Main integration sensors for blocked flows, alarms, rules, box counts, recent traffic, and top-region statistics
+- Per-box network throughput sensors for download volume, upload volume, download Mbps, and upload Mbps
+- Internet-block switches for client devices and local networks returned by the API
+- Diagnostics that include scope, capabilities, endpoint errors, and redacted runtime data
+- Reauthentication and reconfiguration flows for updating the connection without removing the entry
+
+What is not exposed:
+
+- Physical interface disable/enable for boxes, devices, or networks
+- Discovery-based onboarding
+- Firmware updates or other device-management actions
+- Write actions beyond the rule-backed internet block switches
+
+## Supported devices
+
+Supported Firewalla setups are the MSP API scopes that can return data for the configured token:
+
+- `global`: the whole MSP tenant
+- `group`: a Firewalla group within the tenant
+- `box`: a single Firewalla box by `gid`
+
+The integration is built around the box objects returned by the API:
+
+- Each Firewalla box becomes a Home Assistant device
+- Client devices returned under a box are represented as switches attached to the parent box device, not as separate Home Assistant devices
+- Networks returned under a box are represented as sensors attached to the parent box device
+
+Not every scope can populate every entity type:
+
+- Box scope is narrower and may not expose global trends or box-level rollups
+- Global and group scopes can expose the full set of box and network entities when the MSP API returns the relevant data
+- If Firewalla does not return the required endpoint data, the integration keeps the entities that it can support and marks the rest unavailable
+
+## Known Limitations
+
+- There is no discovery path by design
+- Internet blocking is rule-based and does not physically disable an interface
+- The top-talker lists are based on the configured rolling traffic window, not on a live instantaneous counter
+- The recent-volume sensors show rolling byte totals for the configured window, not a cumulative lifetime total
+- Some entity groups depend on optional Firewalla endpoints; if the token or scope cannot read those endpoints, those entities will not appear
+- The integration only manages data exposed by the Firewalla MSP API; it cannot change firewall behavior outside that API
+
+## Use Cases
+
+Common day-to-day uses for this integration:
+
+- Check which boxes are online and whether any are offline
+- Watch blocked-flow and alarm trends over time
+- See which devices are using the most download or upload bandwidth in the selected traffic window
+- Block a device from the internet temporarily without deleting it from Firewalla
+- Block a local network from internet access while leaving the rest of the box available
+- Inspect per-box network throughput when troubleshooting a noisy segment
+- Compare the same metric across multiple boxes in a group or across the tenant
+
+## Supported Devices and Functions
+
+The following entities are created when the API exposes the required data:
+
+- Main integration sensors: blocked flows, alarms, rules, box counts, top-region stats, and recent traffic
+- Per-box sensors: blocked flows, alarms, current alarms, and top talkers
+- Per-box network sensors: download volume, upload volume, download Mbps, and upload Mbps
+- Per-box switches: device internet block and network internet block
+
+The integration does not create:
+
+- Separate Home Assistant devices for Firewalla client devices
+- Network-level physical controls
+- User-visible discovery onboarding flows
+
 ## Notes
 
 - This integration uses config entries and is configured entirely in the UI.
 - Sensors are based on the Firewalla MSP API and depend on the data your token and scope can access.
 - Per-network bandwidth sensors are created dynamically from network data returned by the API and are attached to the owning box device.
-- Device and network internet-block switches are created dynamically from device/network discovery and are backed by Firewalla MSP rules.
-- Device internet-block switches are attached to the owning Firewalla box device. The integration does not create separate Home Assistant devices for discovered client devices.
+- Device and network internet-block switches are created dynamically from device and network data returned by the API and are backed by Firewalla MSP rules.
+- Device internet-block switches are attached to the owning Firewalla box device. The integration does not create separate Home Assistant devices for client devices returned by the API.
 - Aggregate throughput sensors on the main integration device are derived from grouped flow data over the integration's recent traffic window.
 - Each box gets a `Top Talkers` sensor. Its state is the number of ranked devices for that box, and its attributes expose `download_ranked_devices` and `upload_ranked_devices`.
 - The legacy `*_last_5m` entity IDs are retained for compatibility, but they now represent the current recent-volume window exposed by the integration.
@@ -154,6 +230,41 @@ After setup, the integration options let you change:
 - Check each sensor's `window_seconds` attribute for the exact rolling period used by the current version.
 - Check each sensor's `window_minutes` attribute for the configured rolling period in minutes.
 - The recent traffic window is configurable to `1`, `5`, `15`, or `30` minutes in the integration options.
+- Top-talker sensors rank devices separately for download and upload. Their state is the number of known devices in the box-level list, while the `download_ranked_devices` and `upload_ranked_devices` attributes carry the ordered lists.
+
+## Data Update
+
+The integration polls Firewalla on a fixed interval configured by `Scan interval`.
+
+On each refresh it attempts to load, in order:
+
+- boxes
+- trends
+- simple stats
+- top stats
+- rules
+- devices
+- grouped flows
+- flow pages for top talkers
+
+The configured `Traffic window` controls the grouped-flow query used for:
+
+- recent volume sensors
+- Mbps sensors
+- per-box top talker lists
+
+Top talkers are built from the aggregated flow records returned for the current scope. The integration keeps every known device in the box-level list and exposes both upload and download rankings as attributes.
+
+If Firewalla temporarily returns an error for an optional endpoint:
+
+- the integration logs the failure once
+- it keeps any other data it could load
+- it recovers automatically when the endpoint starts working again
+
+If the API is unavailable long enough that no data can be loaded:
+
+- the integration returns a degraded payload instead of crashing
+- auth failures trigger Home Assistant reauthentication
 
 ## Capability diagnostics
 
@@ -175,12 +286,22 @@ This makes it easier to understand why a given MSP tenant or scope exposes only 
   Confirm the base URL is reachable from Home Assistant, the MSP endpoint is online, and any reverse proxy or firewall rules allow the request.
 - `unknown_box`:
   The configured box `gid` does not exist in the tenant visible to the provided token.
+- `already_configured` during reconfigure:
+  The new base URL and scope combination already belongs to another Firewalla entry.
 - Missing some per-box sensors:
   This can be expected if the MSP API does not expose matching box-level data for that metric. Per-box network bandwidth depends on grouped flow plus device/network data.
 - Missing top-talker lists or internet-block switches:
-  These depend on device discovery and rules/flows access for the configured scope. Check diagnostics for `capabilities`, `devices`, `device_traffic`, `rules`, and `endpoint_errors`.
+  These depend on Firewalla returning the device, flow, and rule data needed for the configured scope. Check diagnostics for `capabilities`, `devices`, `device_traffic`, `rules`, and `endpoint_errors`.
+- Missing `Top Talkers` on a box:
+  Check that the box has grouped-flow data for the current traffic window and that the `top_talkers` capability is `true` in diagnostics.
+- Internet-block switch changes do not stick:
+  Confirm the token can read and write Firewalla rules for the configured scope and that no other rule with the same target is managed outside Home Assistant.
 - Missing some entity groups for a global or group scope:
   The integration degrades gracefully when optional Firewalla endpoints return `403`, `404`, or other endpoint-specific failures. Check diagnostics for `capabilities` and `endpoint_errors`.
+- Recent-traffic values look too small or too large:
+  Check the configured `Traffic window` in the integration options. The sensors report rolling totals for that window, not a lifetime total.
+- Device names look wrong in the block switches:
+  Firewalla supplies the entity names from the device and network names returned by the API. If the name is stale there, refresh the Firewalla inventory first.
 - SSL verification failures:
   If your MSP endpoint uses a private or invalid certificate, either fix the certificate chain or disable `Verify SSL` for that config entry.
 
@@ -190,7 +311,9 @@ Example dashboards are included in [`examples/`](./examples):
 
 - [`dashboard-basic.yaml`](./examples/dashboard-basic.yaml) uses built-in Lovelace cards only and focuses on the main integration device sensors.
 - [`dashboard-mini-graph.yaml`](./examples/dashboard-mini-graph.yaml) uses `mini-graph-card` for historical throughput charts on the main integration device sensors.
-- [`card-top-talkers.yaml`](./examples/card-top-talkers.yaml) is a standalone markdown-card example that renders the per-box `download_ranked_devices` and `upload_ranked_devices` attributes as readable lists.
+- [`card-top-talkers.yaml`](./examples/card-top-talkers.yaml) is a standalone example for rendering the per-box `download_ranked_devices` and `upload_ranked_devices` attributes as readable lists.
+- [`dashboard-basic.yaml`](./examples/dashboard-basic.yaml) includes example top-talker rendering for the main box sensor.
+- [`dashboard-mini-graph.yaml`](./examples/dashboard-mini-graph.yaml) shows how to mix traffic charts with the box-level top-talker summary.
 
 These examples are intentionally generic and optional. They are not installed by the integration and can be adapted to your own dashboard structure.
 
@@ -202,6 +325,7 @@ Notes for the examples:
 - Wired, wireless, and WireGuard sensors now live under each Firewalla box device when the API exposes those networks.
 - Per-box top-talker sensors and device/network block switches are dynamic. Replace the sample box, device, or network entity IDs with ones from your own Home Assistant instance.
 - The top-talker card examples use `sensor.firewalla_branch_box_top_talkers` as a placeholder. Replace that with the actual top-talker sensor for your box device.
+- The top-talkers card expects a box sensor and reads the `download_ranked_devices` and `upload_ranked_devices` attributes from that entity.
 
 ## Development
 

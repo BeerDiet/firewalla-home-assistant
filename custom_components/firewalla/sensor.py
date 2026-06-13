@@ -275,7 +275,7 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
 class FirewallaBaseSensor(CoordinatorEntity, SensorEntity):
     """Shared Firewalla sensor behavior."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         """Initialize the base sensor."""

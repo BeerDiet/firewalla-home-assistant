@@ -304,6 +304,7 @@ def test_base_sensor_scope_fallback_and_device_info() -> None:
     coordinator.data["scope"] = "bad"
     sensor = FirewallaBaseSensor(coordinator, entry)
 
+    assert sensor._attr_has_entity_name is True
     assert sensor.device_info["name"] == "Firewalla global"
     assert sensor._scope_attributes()["scope_type"] == "global"
 

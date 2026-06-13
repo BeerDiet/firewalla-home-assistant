@@ -7,6 +7,29 @@
         "description": "Enter a new personal access token for {name}.",
         "data": {
           "token": "Personal access token"
+        },
+        "data_description": {
+          "token": "A new personal access token for the Firewalla MSP API."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Firewalla",
+        "description": "Update the connection settings for {name}.",
+        "data": {
+          "name": "Name",
+          "base_url": "Firewalla URL",
+          "token": "Personal access token",
+          "scope_type": "Scope type",
+          "scope_id": "Scope ID",
+          "verify_ssl": "Verify SSL certificate"
+        },
+        "data_description": {
+          "name": "A friendly name for this Firewalla connection.",
+          "base_url": "The Firewalla MSP base URL, for example https://example.firewalla.net.",
+          "token": "Your Firewalla personal access token.",
+          "scope_type": "Choose whether to connect to the whole MSP, a group, or a single box.",
+          "scope_id": "The group ID or box ID for the selected scope type.",
+          "verify_ssl": "Disable only if your Firewalla uses a self-signed certificate."
         }
       },
       "user": {
@@ -21,6 +44,16 @@
           "scan_interval": "Scan interval (seconds)",
           "traffic_window_minutes": "Traffic window (minutes)",
           "verify_ssl": "Verify SSL certificate"
+        },
+        "data_description": {
+          "name": "A friendly name for this Firewalla connection.",
+          "base_url": "The Firewalla MSP base URL, for example https://example.firewalla.net.",
+          "token": "Your Firewalla personal access token.",
+          "scope_type": "Choose whether to connect to the whole MSP, a group, or a single box.",
+          "scope_id": "The group ID or box ID for the selected scope type.",
+          "scan_interval": "How often Home Assistant should refresh Firewalla data.",
+          "traffic_window_minutes": "How far back to look when building recent traffic summaries.",
+          "verify_ssl": "Disable only if your Firewalla uses a self-signed certificate."
         }
       }
     },
@@ -33,7 +66,8 @@
     }
   },
   "abort": {
-    "reauth_successful": "Firewalla connection updated."
+    "reauth_successful": "Firewalla connection updated.",
+    "reconfigure_successful": "Firewalla connection updated."
   },
   "options": {
     "step": {
@@ -42,6 +76,10 @@
         "data": {
           "scan_interval": "Scan interval (seconds)",
           "traffic_window_minutes": "Traffic window (minutes)"
+        },
+        "data_description": {
+          "scan_interval": "How often Home Assistant should refresh Firewalla data.",
+          "traffic_window_minutes": "How far back to look when building recent traffic summaries."
         }
       }
     }
