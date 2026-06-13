@@ -157,16 +157,6 @@ SENSOR_DESCRIPTIONS: tuple[FirewallaTrendSensorDescription, ...] = (
         trend_type="upload_mbps",
         source="bandwidth",
     ),
-    FirewallaTrendSensorDescription(
-        key="top_talkers",
-        name="Top Talkers",
-        icon="mdi:account-network-outline",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
-        state_class=SensorStateClass.MEASUREMENT,
-        trend_type="top_talkers",
-        source="top_talkers",
-    ),
 )
 
 _SOURCE_CAPABILITY = {
@@ -174,7 +164,6 @@ _SOURCE_CAPABILITY = {
     "simple_stats": "simple_stats",
     "top_stats": "top_stats",
     "bandwidth": "bandwidth",
-    "top_talkers": "top_talkers",
 }
 
 PARALLEL_UPDATES = 0
@@ -225,7 +214,6 @@ _GLOBAL_SENSOR_KEYS = {
     "top_region_blocked_flows",
     "current_rules",
     "rules",
-    "top_talkers",
 }
 
 
@@ -254,26 +242,7 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
             for description in SENSOR_DESCRIPTIONS
             if description.key in _PER_BOX_SENSOR_KEYS
         )
-
-    devices = coordinator.data.get("devices", [])
-    if isinstance(devices, list):
-        for device in devices:
-            if not isinstance(device, dict):
-                continue
-            device_id = str(device.get("id") or "").strip()
-            device_gid = str(device.get("gid") or "").strip()
-            device_name = str(device.get("name") or device_id).strip()
-            if not device_id or not device_gid or not device_name:
-                continue
-            entities.append(
-                FirewallaPerDeviceTrafficSensor(
-                    coordinator,
-                    entry,
-                    device_gid,
-                    device_id,
-                    device_name,
-                )
-            )
+        entities.append(FirewallaPerBoxTopTalkersSensor(coordinator, entry, box_gid, box_name))
 
     network_bandwidth = coordinator.data.get("network_bandwidth", {})
     if isinstance(network_bandwidth, dict):
@@ -349,59 +318,73 @@ class FirewallaBaseSensor(CoordinatorEntity, SensorEntity):
         }
 
 
-class FirewallaPerDeviceTrafficSensor(FirewallaBaseSensor):
-    """Representation of a per-device recent traffic sensor."""
+class FirewallaPerBoxTopTalkersSensor(FirewallaBaseSensor):
+    """Representation of a per-box top talkers sensor."""
 
     def __init__(
         self,
         coordinator,
         entry: ConfigEntry,
         box_gid: str,
-        device_id: str,
-        device_name: str,
+        box_name: str,
     ) -> None:
-        """Initialize the device traffic sensor."""
+        """Initialize the top talkers sensor."""
         super().__init__(coordinator, entry)
         self._box_gid = box_gid
-        self._device_id = device_id
-        self._device_name = device_name
-        self._attr_name = f"{device_name} Recent Total Volume"
-        self._attr_unique_id = f"{entry.entry_id}_device_traffic_{box_gid}_{device_id}"
-        self._attr_suggested_object_id = (
-            f"firewalla_{_slugify(device_name)}_recent_total_volume"
-        )
+        self._box_name = box_name
+        self._attr_name = "Top Talkers"
+        self._attr_unique_id = f"{entry.entry_id}_box_{box_gid}_top_talkers"
+        self._attr_suggested_object_id = f"firewalla_{_slugify(box_name)}_top_talkers"
         self._attr_icon = "mdi:account-network-outline"
-        self._attr_device_class = SensorDeviceClass.DATA_SIZE
-        self._attr_native_unit_of_measurement = UnitOfInformation.GIGABYTES
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device metadata."""
+        """Return box metadata."""
         return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.entry_id}_device_{self._box_gid}_{self._device_id}")},
-            name=f"Firewalla {self._device_name}",
+            identifiers={(DOMAIN, f"{self._entry.entry_id}_box_{self._box_gid}")},
+            name=f"Firewalla {self._box_name}",
             manufacturer="Firewalla",
-            model="MSP Device",
+            model="MSP API",
             configuration_url=self.coordinator.client.base_url,
         )
 
-    def _device_traffic(self) -> dict[str, object]:
-        """Return aggregated traffic for the device."""
+    def _device_traffic(self) -> list[dict[str, object]]:
+        """Return aggregated traffic rows for the box."""
         device_traffic = self.coordinator.data.get("device_traffic", [])
         if not isinstance(device_traffic, list):
-            return {}
+            return []
+        return [
+            item
+            for item in device_traffic
+            if isinstance(item, dict)
+            and str(item.get("gid") or "").strip() == self._box_gid
+        ]
 
-        for index, item in enumerate(device_traffic, start=1):
-            if not isinstance(item, dict):
-                continue
-            if str(item.get("device_id") or "").strip() != self._device_id:
-                continue
-            if str(item.get("gid") or "").strip() != self._box_gid:
-                continue
-            return {**item, "rank": index}
-
-        return {}
+    def _ranked_devices(self, metric: str) -> list[dict[str, object]]:
+        """Return ranked traffic rows for the box by the given metric."""
+        ranked = sorted(
+            self._device_traffic(),
+            key=lambda item: (
+                item.get(metric, 0) if isinstance(item.get(metric), (int, float)) else 0,
+                str(item.get("device_name") or ""),
+            ),
+            reverse=True,
+        )
+        return [
+            {
+                "rank": index,
+                "device_id": item.get("device_id"),
+                "device_name": item.get("device_name"),
+                "network_id": item.get("network_id"),
+                "network_name": item.get("network_name"),
+                "box_name": item.get("box_name"),
+                "bytes": item.get(metric, 0),
+                "window_minutes": item.get("window_minutes"),
+                "window_seconds": item.get("window_seconds"),
+            }
+            for index, item in enumerate(ranked, start=1)
+        ]
 
     @property
     def available(self) -> bool:
@@ -413,37 +396,25 @@ class FirewallaPerDeviceTrafficSensor(FirewallaBaseSensor):
 
     @property
     def native_value(self) -> int | float | None:
-        """Return the total recent transfer volume in GB."""
+        """Return the number of ranked devices for the box."""
         if not self.available:
             return None
-        traffic = self._device_traffic()
-        value = traffic.get("total_bytes", 0)
-        if not isinstance(value, (int, float)):
-            return 0
-        return _bytes_to_gigabytes(value)
+        return len(self._device_traffic())
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        """Return device traffic metadata."""
+        """Return ranked per-box download and upload lists."""
         attrs = self._scope_attributes()
         traffic = self._device_traffic()
+        first = traffic[0] if traffic else {}
         return {
-            "source": "device_traffic",
-            "device_id": self._device_id,
-            "device_name": self._device_name,
+            "source": "top_talkers",
             "box_gid": self._box_gid,
-            "box_name": traffic.get("box_name"),
-            "network_id": traffic.get("network_id"),
-            "network_name": traffic.get("network_name"),
-            "rank": traffic.get("rank"),
-            "raw_total_bytes": traffic.get("total_bytes", 0),
-            "raw_download_bytes": traffic.get("download_bytes", 0),
-            "raw_upload_bytes": traffic.get("upload_bytes", 0),
-            "download_mbps": traffic.get("download_mbps", 0.0),
-            "upload_mbps": traffic.get("upload_mbps", 0.0),
-            "flow_count": traffic.get("flow_count", 0),
-            "window_minutes": traffic.get("window_minutes"),
-            "window_seconds": traffic.get("window_seconds"),
+            "box_name": self._box_name,
+            "download_ranked_devices": self._ranked_devices("download_bytes"),
+            "upload_ranked_devices": self._ranked_devices("upload_bytes"),
+            "window_minutes": first.get("window_minutes"),
+            "window_seconds": first.get("window_seconds"),
             **attrs,
         }
 
@@ -513,18 +484,6 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
                 return _bytes_to_gigabytes(value)
             return value
 
-        if self.entity_description.source == "top_talkers":
-            top_talkers = self.coordinator.data.get("top_talkers", [])
-            if not isinstance(top_talkers, list) or not top_talkers:
-                return 0
-            leader = top_talkers[0]
-            if not isinstance(leader, dict):
-                return 0
-            value = leader.get("total_bytes")
-            if not isinstance(value, (int, float)):
-                return 0
-            return _bytes_to_gigabytes(value)
-
         trends = self.coordinator.data.get("trends", {})
         if not isinstance(trends, dict):
             return None
@@ -581,28 +540,6 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
                 "window_minutes": bandwidth.get("window_minutes"),
                 "window_seconds": bandwidth.get("window_seconds"),
                 "flow_count": bandwidth.get("flow_count"),
-                **attrs,
-            }
-
-        if self.entity_description.source == "top_talkers":
-            top_talkers = self.coordinator.data.get("top_talkers", [])
-            if not isinstance(top_talkers, list) or not top_talkers:
-                return {"source": "top_talkers", "results": [], **attrs}
-
-            leader = top_talkers[0]
-            if not isinstance(leader, dict):
-                return {"source": "top_talkers", "results": [], **attrs}
-
-            return {
-                "source": "top_talkers",
-                "results": top_talkers,
-                "leader_device_id": leader.get("device_id"),
-                "leader_device_name": leader.get("device_name"),
-                "leader_total_bytes": leader.get("total_bytes"),
-                "leader_download_bytes": leader.get("download_bytes"),
-                "leader_upload_bytes": leader.get("upload_bytes"),
-                "window_minutes": leader.get("window_minutes"),
-                "window_seconds": leader.get("window_seconds"),
                 **attrs,
             }
 

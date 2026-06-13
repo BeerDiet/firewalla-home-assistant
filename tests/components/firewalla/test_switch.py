@@ -36,6 +36,13 @@ def _coordinator(rules: list[dict[str, object]] | None = None) -> SimpleNamespac
         client=client,
         data={
             "capabilities": {"rules": True},
+            "boxes": [
+                {
+                    "gid": "gid-1",
+                    "name": "Branch Box",
+                    "model": "FW",
+                }
+            ],
             "devices": [
                 {
                     "gid": "gid-1",
@@ -292,5 +299,17 @@ def test_network_switch_device_info_and_attrs() -> None:
         coordinator, _entry(), "gid-1", "gid-1::net-1", "net-1", "Main LAN", None
     )
 
-    assert entity.device_info["model"] == "MSP Network"
+    assert entity.device_info["name"] == "Firewalla Branch Box"
+    assert entity.device_info["model"] == "FW"
     assert entity.extra_state_attributes["rule_id"] is None
+
+
+def test_device_switch_device_info_uses_parent_box() -> None:
+    """Test device switches attach to the parent box device."""
+    coordinator = _coordinator([])
+    entity = FirewallaDeviceInternetBlockSwitch(
+        coordinator, _entry(), "gid-1", "dev-1", "Laptop"
+    )
+
+    assert entity.device_info["name"] == "Firewalla Branch Box"
+    assert entity.device_info["model"] == "FW"

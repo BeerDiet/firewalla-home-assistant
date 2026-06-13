@@ -64,20 +64,18 @@ views:
               - entity: sensor.firewalla_top_box_blocked_flows
               - entity: sensor.firewalla_top_box_security_alarms
               - entity: sensor.firewalla_top_region_blocked_flows
-              - entity: sensor.firewalla_top_talkers
-                name: Top Talkers Summary
+              - entity: sensor.firewalla_branch_box_top_talkers
+                name: Branch Box Top Talkers
       - title: Dynamic Entities
         cards:
           - type: markdown
             content: >
-              Device recent-volume sensors and internet-block switches are
-              created dynamically. Replace the sample entity IDs below with the
-              ones from your own Home Assistant instance.
+              Top-talker sensors and internet-block switches are created
+              dynamically under each Firewalla box. Replace the sample entity
+              IDs below with the ones from your own Home Assistant instance.
           - type: entities
             title: Sample Device Controls
             entities:
-              - entity: sensor.firewalla_laptop_recent_total_volume
-                name: Laptop Recent Total Volume
               - entity: switch.firewalla_gid_1_dev_1_internet_block
                 name: Laptop Internet Block
               - entity: switch.firewalla_gid_1_net_1_internet_block

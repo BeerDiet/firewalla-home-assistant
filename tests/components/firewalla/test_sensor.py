@@ -13,7 +13,7 @@ from custom_components.firewalla.sensor import (
     FirewallaBaseSensor,
     FirewallaPerBoxNetworkBandwidthSensor,
     FirewallaPerBoxSensor,
-    FirewallaPerDeviceTrafficSensor,
+    FirewallaPerBoxTopTalkersSensor,
     FirewallaTrendSensor,
     _bytes_to_gigabytes,
     _slugify,
@@ -266,34 +266,35 @@ def test_trend_sensor_native_value_and_attrs_for_bandwidth() -> None:
     assert sensor.extra_state_attributes["source"] == "grouped_flows"
 
 
-def test_trend_sensor_native_value_and_attrs_for_top_talkers() -> None:
-    """Test top talker sensor values."""
+def test_per_box_top_talkers_sensor_value_and_attrs() -> None:
+    """Test per-box top talkers sensors expose ranked traffic data."""
     entry = _entry()
     coordinator = _coordinator()
-    description = next(item for item in SENSOR_DESCRIPTIONS if item.key == "top_talkers")
-    sensor = FirewallaTrendSensor(coordinator, entry, description)
-
-    assert sensor.available is True
-    assert sensor.native_value == 0.0
-    assert sensor.extra_state_attributes["source"] == "top_talkers"
-    assert sensor.extra_state_attributes["leader_device_name"] == "Laptop"
-    assert sensor.extra_state_attributes["results"][0]["device_id"] == "dev-1"
-
-
-def test_per_device_traffic_sensor_value_and_attrs() -> None:
-    """Test per-device traffic sensors expose ranked traffic data."""
-    entry = _entry()
-    coordinator = _coordinator()
-    sensor = FirewallaPerDeviceTrafficSensor(
-        coordinator, entry, "g1", "dev-1", "Laptop"
+    coordinator.data["device_traffic"].append(
+        {
+            "device_id": "dev-2",
+            "device_name": "Phone",
+            "gid": "g1",
+            "box_name": "Branch Box",
+            "box_model": "FW",
+            "network_id": "net1",
+            "network_name": "Main LAN",
+            "download_bytes": 2_000,
+            "upload_bytes": 200,
+            "total_bytes": 2_200,
+            "window_minutes": 15,
+            "window_seconds": 900,
+        }
     )
+    sensor = FirewallaPerBoxTopTalkersSensor(coordinator, entry, "g1", "Branch Box")
 
     assert sensor.available is True
-    assert sensor.native_value == 0.0
-    assert sensor.device_info["name"] == "Firewalla Laptop"
-    assert sensor.extra_state_attributes["rank"] == 1
-    assert sensor.extra_state_attributes["network_name"] == "Main LAN"
-    assert sensor.extra_state_attributes["raw_total_bytes"] == 1_500
+    assert sensor.native_value == 2
+    assert sensor.device_info["name"] == "Firewalla Branch Box"
+    assert sensor.extra_state_attributes["source"] == "top_talkers"
+    assert sensor.extra_state_attributes["download_ranked_devices"][0]["device_id"] == "dev-2"
+    assert sensor.extra_state_attributes["upload_ranked_devices"][0]["device_id"] == "dev-1"
+    assert sensor.extra_state_attributes["window_minutes"] == 15
 
 
 def test_base_sensor_scope_fallback_and_device_info() -> None:
@@ -307,30 +308,30 @@ def test_base_sensor_scope_fallback_and_device_info() -> None:
     assert sensor._scope_attributes()["scope_type"] == "global"
 
 
-def test_per_device_traffic_sensor_handles_missing_or_invalid_payloads() -> None:
-    """Test per-device traffic fallback paths."""
+def test_per_box_top_talkers_sensor_handles_missing_or_invalid_payloads() -> None:
+    """Test per-box top talkers fallback paths."""
     entry = _entry()
     coordinator = _coordinator()
-    sensor = FirewallaPerDeviceTrafficSensor(
-        coordinator, entry, "g1", "dev-1", "Laptop"
-    )
+    sensor = FirewallaPerBoxTopTalkersSensor(coordinator, entry, "g1", "Branch Box")
 
     coordinator.data["device_traffic"] = "bad"
     assert sensor.native_value == 0
-    assert sensor.extra_state_attributes["rank"] is None
+    assert sensor.extra_state_attributes["download_ranked_devices"] == []
+    assert sensor.extra_state_attributes["upload_ranked_devices"] == []
 
     coordinator.data["capabilities"] = "bad"
     assert sensor.available is False
     assert sensor.native_value is None
 
     coordinator.data["capabilities"] = {"top_talkers": True}
-    coordinator.data["device_traffic"] = [{"device_id": "other", "gid": "g1"}]
-    assert sensor.extra_state_attributes["raw_total_bytes"] == 0
+    coordinator.data["device_traffic"] = [{"device_id": "other", "gid": "g2"}]
+    assert sensor.native_value == 0
 
     coordinator.data["device_traffic"] = [
-        {"device_id": "dev-1", "gid": "g1", "total_bytes": "bad"}
+        {"device_id": "dev-1", "device_name": "Laptop", "gid": "g1", "download_bytes": "bad"}
     ]
-    assert sensor.native_value == 0
+    assert sensor.native_value == 1
+    assert sensor.extra_state_attributes["download_ranked_devices"][0]["bytes"] == "bad"
 
 
 def test_trend_sensor_formats_recent_volume_in_gigabytes() -> None:
@@ -386,17 +387,6 @@ def test_trend_sensor_handles_invalid_source_payloads() -> None:
     coordinator.data["simple_stats"] = "bad"
     simple_sensor = FirewallaTrendSensor(coordinator, entry, simple_description)
     assert simple_sensor.native_value is None
-
-    talker_description = next(
-        item for item in SENSOR_DESCRIPTIONS if item.key == "top_talkers"
-    )
-    coordinator.data["top_talkers"] = [{}]
-    talker_sensor = FirewallaTrendSensor(coordinator, entry, talker_description)
-    assert talker_sensor.native_value == 0
-    assert talker_sensor.extra_state_attributes["results"] == [{}]
-
-    coordinator.data["top_talkers"] = "bad"
-    assert talker_sensor.extra_state_attributes["results"] == []
 
     coordinator.data["trends"] = "bad"
     trend_description = next(item for item in SENSOR_DESCRIPTIONS if item.key == "flows")
@@ -470,7 +460,7 @@ async def test_async_setup_entry_adds_supported_per_box_entities() -> None:
     assert len(added) == (
         len(_GLOBAL_SENSOR_KEYS) + len(_PER_BOX_SENSOR_KEYS) + 4 + 1
     )
-    assert any(isinstance(entity, FirewallaPerDeviceTrafficSensor) for entity in added)
+    assert any(isinstance(entity, FirewallaPerBoxTopTalkersSensor) for entity in added)
 
 
 async def test_async_setup_entry_ignores_network_rows() -> None:

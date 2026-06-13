@@ -9,10 +9,9 @@ This integration connects to a Firewalla MSP endpoint with a personal access tok
 - Current alarms and rules
 - Top-region statistics
 - Main-device aggregate download/upload traffic
-- Main-device top-talker summary over the configured traffic window
 - Per-box security/activity sensors
+- Per-box top-talker list sensors with ranked download and upload attributes
 - Per-network download/upload traffic under each box device
-- Per-device recent total traffic sensors
 - Rule-backed internet block switches for devices and local networks
 
 ## Sensors created
@@ -43,6 +42,7 @@ For each Firewalla box returned in the selected global or group scope, the integ
 - `<Box Name> Blocked Flows`
 - `<Box Name> Alarms`
 - `<Box Name> Current Alarms`
+- `<Box Name> Top Talkers`
 
 Per-box network sensors:
 
@@ -52,12 +52,6 @@ Under each Firewalla box device, the integration also creates:
 - `<Network Name> Upload Recent Volume`
 - `<Network Name> Download Mbps`
 - `<Network Name> Upload Mbps`
-
-Per-device traffic sensors:
-
-For each Firewalla device returned by the selected scope, the integration creates:
-
-- `<Device Name> Recent Total Volume`
 
 Switches created:
 
@@ -70,7 +64,7 @@ Notes:
 
 - Per-box devices are deduplicated by Firewalla `gid`, so a box is only added once even if multiple grouped flow rows refer to it.
 - Per-box network sensors are only created when grouped flow and device data are available.
-- Per-device recent traffic sensors are created from recent flow aggregation and report total volume over the configured traffic window.
+- Per-box `Top Talkers` sensors expose ranked upload and download device lists in attributes for that box over the configured traffic window.
 - Device and network internet block entities are implemented as Firewalla rules with an `internet` target. They do not physically disable a NIC, VLAN, or WAN/LAN interface.
 - Network names are automatically qualified when duplicate names exist across boxes.
 - Some sensor groups may remain unavailable when the configured scope or token cannot access the required endpoint.
@@ -86,7 +80,7 @@ The integration supports three scopes:
 The configured scope affects which sensors can exist:
 
 - `global` and `group` scopes can expose main-device aggregate sensors plus one device per discovered Firewalla box
-- Each discovered box device can expose per-box security/activity sensors, per-network bandwidth sensors, device internet-block switches, network internet-block switches, and per-device recent traffic sensors
+- Each discovered box device can expose per-box security/activity sensors, per-box top-talker sensors, per-network bandwidth sensors, device internet-block switches, and network internet-block switches
 - `box` scope behavior is narrower and depends on the MSP API responses for that specific box
 
 During setup and updates, the integration records endpoint capabilities and degrades gracefully when optional endpoints are unavailable. That means a token or scope that cannot use one endpoint can still load and publish the sensors supported by the remaining endpoints.
@@ -151,13 +145,12 @@ After setup, the integration options let you change:
 - This integration uses config entries and is configured entirely in the UI.
 - Sensors are based on the Firewalla MSP API and depend on the data your token and scope can access.
 - Per-network bandwidth sensors are created dynamically from network data returned by the API and are attached to the owning box device.
-- Per-device recent traffic sensors are created dynamically from device data plus recent flow records and are attached to the matching Firewalla device.
 - Device and network internet-block switches are created dynamically from device/network discovery and are backed by Firewalla MSP rules.
+- Device internet-block switches are attached to the owning Firewalla box device. The integration does not create separate Home Assistant devices for discovered client devices.
 - Aggregate throughput sensors on the main integration device are derived from grouped flow data over the integration's recent traffic window.
-- The `Top Talkers` sensor on the main integration device is a summary entity. Its state is the leading device's recent total volume in `GB`, and the full ranked list is exposed in the `results` attribute.
+- Each box gets a `Top Talkers` sensor. Its state is the number of ranked devices for that box, and its attributes expose `download_ranked_devices` and `upload_ranked_devices`.
 - The legacy `*_last_5m` entity IDs are retained for compatibility, but they now represent the current recent-volume window exposed by the integration.
 - `Download Recent Volume` and `Upload Recent Volume` sensors are rolling byte totals over the configured recent traffic window, not instantaneous throughput. Their state is shown in `GB`, and the raw byte totals remain available in attributes like `raw_download_bytes` and `raw_upload_bytes`.
-- Per-device `Recent Total Volume` sensors also report `GB` state values, with raw download/upload/total byte counts left in attributes.
 - Check each sensor's `window_seconds` attribute for the exact rolling period used by the current version.
 - Check each sensor's `window_minutes` attribute for the configured rolling period in minutes.
 - The recent traffic window is configurable to `1`, `5`, `15`, or `30` minutes in the integration options.
@@ -184,8 +177,8 @@ This makes it easier to understand why a given MSP tenant or scope exposes only 
   The configured box `gid` does not exist in the tenant visible to the provided token.
 - Missing some per-box sensors:
   This can be expected if the MSP API does not expose matching box-level data for that metric. Per-box network bandwidth depends on grouped flow plus device/network data.
-- Missing per-device traffic sensors or internet-block switches:
-  These depend on device discovery and rules/flows access for the configured scope. Check diagnostics for `capabilities`, `devices`, `rules`, and `endpoint_errors`.
+- Missing top-talker lists or internet-block switches:
+  These depend on device discovery and rules/flows access for the configured scope. Check diagnostics for `capabilities`, `devices`, `device_traffic`, `rules`, and `endpoint_errors`.
 - Missing some entity groups for a global or group scope:
   The integration degrades gracefully when optional Firewalla endpoints return `403`, `404`, or other endpoint-specific failures. Check diagnostics for `capabilities` and `endpoint_errors`.
 - SSL verification failures:
@@ -206,7 +199,7 @@ Notes for the examples:
 - `sensor.firewalla_rules` is recent `Rule Activity`, not your configured rule count. Use `sensor.firewalla_current_rules` when you want the current total.
 - Recent-volume entities should be labeled generically as `Recent Volume`, with the active range read from each entity's `window_minutes` attribute or from your configured integration option.
 - Wired, wireless, and WireGuard sensors now live under each Firewalla box device when the API exposes those networks.
-- Per-device traffic entities and device/network block switches are dynamic. Replace the sample device or network entity IDs with ones from your own Home Assistant instance.
+- Per-box top-talker sensors and device/network block switches are dynamic. Replace the sample box, device, or network entity IDs with ones from your own Home Assistant instance.
 
 ## Development
 

@@ -91,6 +91,17 @@ class FirewallaRuleSwitch(CoordinatorEntity, SwitchEntity):
         self._entry = entry
         self._box_gid = box_gid
 
+    def _box(self) -> dict[str, object]:
+        """Return the owning box metadata when available."""
+        boxes = self.coordinator.data.get("boxes", [])
+        if isinstance(boxes, list):
+            for box in boxes:
+                if not isinstance(box, dict):
+                    continue
+                if str(box.get("gid") or "").strip() == self._box_gid:
+                    return box
+        return {}
+
     @property
     def available(self) -> bool:
         """Return whether the switch is available."""
@@ -221,12 +232,13 @@ class FirewallaDeviceInternetBlockSwitch(FirewallaRuleSwitch):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device metadata."""
+        """Return owning box metadata."""
+        box = self._box()
         return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.entry_id}_device_{self._box_gid}_{self._device_id}")},
-            name=f"Firewalla {self._device_name}",
+            identifiers={(DOMAIN, f"{self._entry.entry_id}_box_{self._box_gid}")},
+            name=f"Firewalla {box.get('name') or self._box_gid}",
             manufacturer="Firewalla",
-            model="MSP Device",
+            model=str(box.get("model") or "MSP API"),
             configuration_url=self.coordinator.client.base_url,
         )
 
@@ -303,14 +315,14 @@ class FirewallaNetworkInternetBlockSwitch(FirewallaRuleSwitch):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return network metadata."""
+        """Return owning box metadata."""
+        box = self._box()
         return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.entry_id}_network_{self._network_key}")},
-            name=f"Firewalla {self._network_name}",
+            identifiers={(DOMAIN, f"{self._entry.entry_id}_box_{self._box_gid}")},
+            name=f"Firewalla {box.get('name') or self._box_gid}",
             manufacturer="Firewalla",
-            model=self._network_type or "MSP Network",
+            model=str(box.get("model") or "MSP API"),
             configuration_url=self.coordinator.client.base_url,
-            via_device=(DOMAIN, f"{self._entry.entry_id}_box_{self._box_gid}"),
         )
 
     def _rule_scope_matches(self, rule: dict[str, object]) -> bool:
