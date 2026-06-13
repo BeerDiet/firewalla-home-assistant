@@ -20,6 +20,7 @@ from .const import (
     CONF_TRAFFIC_WINDOW_MINUTES,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_STATS_LIMIT,
+    DEFAULT_TOP_TALKERS_LIMIT,
     DEFAULT_TRAFFIC_WINDOW_MINUTES,
     DOMAIN,
     OPTIONAL_ENDPOINT_ERRORS,
@@ -193,6 +194,27 @@ def _build_flow_query(scope_type: str, scope_id: str | None, window_start: int) 
     elif scope_type == SCOPE_BOX and scope_id:
         terms.insert(0, f"box.id:{scope_id}")
     return " ".join(terms)
+
+
+def _build_rule_query(scope_type: str, scope_id: str | None) -> str | None:
+    """Build a rule search query for the configured scope."""
+    if scope_type == SCOPE_GROUP and scope_id:
+        return f"box.group.id:{scope_id}"
+    if scope_type == SCOPE_BOX and scope_id:
+        return f"box.id:{scope_id}"
+    return None
+
+
+def _build_top_talkers_query(
+    scope_type: str, scope_id: str | None, window_start: int
+) -> str:
+    """Build a flow query for top-talker aggregation."""
+    return _build_flow_query(scope_type, scope_id, window_start)
+
+
+def _device_key(gid: str | None, device_id: str) -> str:
+    """Build a stable device identifier within an MSP scope."""
+    return f"{gid or 'global'}::{device_id}"
 
 
 def _build_network_bandwidth(
@@ -371,6 +393,93 @@ def _build_box_bandwidth(
     return box_bandwidth
 
 
+def _build_top_talkers(
+    flows: list[dict[str, object]],
+    window_seconds: int,
+    window_minutes: int,
+    boxes_by_gid: dict[str, dict[str, object]],
+    limit: int | None = DEFAULT_TOP_TALKERS_LIMIT,
+) -> list[dict[str, object]]:
+    """Aggregate top talkers from recent flow records."""
+    top_talkers: dict[str, dict[str, object]] = {}
+
+    for item in flows:
+        if item.get("block") is True or item.get("blocked") is True:
+            continue
+
+        device = item.get("device")
+        if not isinstance(device, dict):
+            continue
+
+        device_id = str(device.get("id") or "").strip()
+        if not device_id:
+            continue
+
+        gid = str(item.get("gid") or "").strip()
+        if not gid:
+            continue
+
+        box = boxes_by_gid.get(gid, {})
+        key = _device_key(gid or None, device_id)
+        download_bytes = max(_safe_int(item.get("download")), 0)
+        upload_bytes = max(_safe_int(item.get("upload")), 0)
+        flow_count = max(_safe_int(item.get("count")), 1)
+        current = top_talkers.setdefault(
+            key,
+            {
+                "device_id": device_id,
+                "device_name": str(device.get("name") or device_id).strip() or device_id,
+                "gid": gid,
+                "box_name": str(box.get("name") or "").strip() or None,
+                "box_model": str(box.get("model") or "").strip() or None,
+                "network_id": None,
+                "network_name": None,
+                "download_bytes": 0,
+                "upload_bytes": 0,
+                "total_bytes": 0,
+                "download_mbps": 0.0,
+                "upload_mbps": 0.0,
+                "flow_count": 0,
+                "window_seconds": window_seconds,
+                "window_minutes": window_minutes,
+            },
+        )
+
+        network = item.get("network")
+        if isinstance(network, dict):
+            current["network_id"] = str(network.get("id") or "").strip() or None
+            current["network_name"] = str(network.get("name") or "").strip() or None
+
+        current["download_bytes"] = (
+            _safe_int(current.get("download_bytes")) + download_bytes
+        )
+        current["upload_bytes"] = _safe_int(current.get("upload_bytes")) + upload_bytes
+        current["total_bytes"] = _safe_int(current.get("total_bytes")) + download_bytes + upload_bytes
+        current["flow_count"] = _safe_int(current.get("flow_count")) + flow_count
+        current["download_mbps"] = _compute_rate_mbps(
+            _safe_int(current.get("download_bytes")),
+            window_seconds,
+        )
+        current["upload_mbps"] = _compute_rate_mbps(
+            _safe_int(current.get("upload_bytes")),
+            window_seconds,
+        )
+
+    results = sorted(
+        top_talkers.values(),
+        key=lambda item: (
+            _safe_int(item.get("total_bytes")),
+            _safe_int(item.get("download_bytes")),
+            _safe_int(item.get("upload_bytes")),
+            str(item.get("device_name") or ""),
+        ),
+        reverse=True,
+    )
+    if limit is None:
+        return results
+    return results[:limit]
+
+
 def _empty_payload(
     scope_type: str,
     scope_id: str | None,
@@ -386,9 +495,14 @@ def _empty_payload(
         "capabilities": capabilities,
         "endpoint_errors": endpoint_errors,
         "boxes": boxes,
+        "devices": [],
+        "networks": {},
         "trends": {},
         "simple_stats": {},
         "top_stats": {},
+        "rules": [],
+        "device_traffic": [],
+        "top_talkers": [],
         "bandwidth": {
             "download_bytes": 0,
             "upload_bytes": 0,
@@ -522,8 +636,10 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
             "trends": False,
             "simple_stats": False,
             "top_stats": False,
+            "rules": False,
             "devices": False,
             "grouped_flows": False,
+            "top_talkers": False,
             "bandwidth": False,
             "box_bandwidth": False,
             "network_bandwidth": False,
@@ -635,6 +751,18 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
             else:
                 endpoint_errors["top_stats"] = "unsupported_scope_box"
 
+            rules: list[dict[str, object]] = []
+            success, payload, error = await self._async_fetch_optional(
+                "rules",
+                self.client.async_get_rules,
+                query=_build_rule_query(self.scope_type, self.scope_id),
+            )
+            if success:
+                rules = payload if isinstance(payload, list) else []
+                capabilities["rules"] = True
+            elif error:
+                endpoint_errors["rules"] = error
+
             devices: list[dict[str, object]] = []
             success, payload, error = await self._async_fetch_optional(
                 "devices",
@@ -660,6 +788,50 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 capabilities["grouped_flows"] = True
             elif error:
                 endpoint_errors["grouped_flows"] = error
+
+            boxes_by_gid = _box_map(boxes)
+            known_networks = _build_known_networks(devices, boxes_by_gid)
+
+            device_traffic: list[dict[str, object]] = []
+            top_talkers: list[dict[str, object]] = []
+            aggregated_flows: list[dict[str, object]] = []
+            cursor: str | None = None
+            while True:
+                success, payload, error = await self._async_fetch_optional(
+                    "flows",
+                    self.client.async_get_flows,
+                    query=_build_top_talkers_query(
+                        self.scope_type, self.scope_id, window_start
+                    ),
+                    limit=500,
+                    cursor=cursor,
+                )
+                if not success:
+                    if error:
+                        endpoint_errors["flows"] = error
+                    break
+                page_items = []
+                next_cursor: str | None = None
+                if isinstance(payload, tuple) and len(payload) == 2:
+                    page_items, next_cursor = payload
+                if isinstance(page_items, list):
+                    aggregated_flows.extend(
+                        item for item in page_items if isinstance(item, dict)
+                    )
+                if not next_cursor:
+                    capabilities["top_talkers"] = True
+                    break
+                cursor = next_cursor
+
+            if capabilities["top_talkers"]:
+                device_traffic = _build_top_talkers(
+                    aggregated_flows,
+                    window_seconds,
+                    self.traffic_window_minutes,
+                    boxes_by_gid,
+                    limit=None,
+                )
+                top_talkers = device_traffic[:DEFAULT_TOP_TALKERS_LIMIT]
 
             if not any(capabilities.values()):
                 if endpoint_errors:
@@ -692,8 +864,6 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                     )
                 raise UpdateFailed("No Firewalla data returned")
 
-            boxes_by_gid = _box_map(boxes)
-            known_networks = _build_known_networks(devices, boxes_by_gid)
             box_bandwidth = (
                 _build_box_bandwidth(
                     recent_flows,
@@ -742,9 +912,14 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "capabilities": capabilities,
                 "endpoint_errors": endpoint_errors,
                 "boxes": boxes,
+                "devices": devices,
+                "networks": known_networks,
                 "trends": trends,
                 "simple_stats": simple_stats,
                 "top_stats": top_stats,
+                "rules": rules,
+                "device_traffic": device_traffic,
+                "top_talkers": top_talkers,
                 "bandwidth": bandwidth,
                 "box_bandwidth": box_bandwidth,
                 "network_bandwidth": network_bandwidth,

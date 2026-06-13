@@ -31,6 +31,8 @@ from custom_components.firewalla.coordinator import (
     _build_known_networks,
     _build_network_bandwidth,
     _build_scope_info,
+    _build_top_talkers,
+    _build_top_talkers_query,
     _compute_rate_mbps,
     _network_key,
     _scope_from_entry,
@@ -49,6 +51,7 @@ def test_helper_builders() -> None:
         == "box.group.id:branch ts:>10 status:ok"
     )
     assert _build_flow_query(SCOPE_BOX, "gid-1", 10) == "box.id:gid-1 ts:>10 status:ok"
+    assert _build_top_talkers_query(SCOPE_GLOBAL, None, 10) == "ts:>10 status:ok"
 
     assert _scope_from_entry(SimpleNamespace(data={})) == (SCOPE_GLOBAL, None)
     assert _scope_from_entry(
@@ -67,6 +70,46 @@ def test_helper_builders() -> None:
     assert _traffic_window_minutes_from_entry(
         SimpleNamespace(data={}, options={CONF_TRAFFIC_WINDOW_MINUTES: 30})
     ) == 30
+
+
+def test_top_talker_builder_sorts_and_limits() -> None:
+    """Test top talker aggregation."""
+    top_talkers = _build_top_talkers(
+        [
+            {
+                "gid": "gid-1",
+                "device": {"id": "dev-1", "name": "Laptop"},
+                "network": {"id": "1", "name": "LAN"},
+                "download": 1_000,
+                "upload": 500,
+                "count": 2,
+            },
+            {
+                "gid": "gid-1",
+                "device": {"id": "dev-1", "name": "Laptop"},
+                "network": {"id": "1", "name": "LAN"},
+                "download": 250,
+                "upload": 250,
+                "count": 1,
+            },
+            {
+                "gid": "gid-1",
+                "device": {"id": "dev-2", "name": "Tablet"},
+                "network": {"id": "1", "name": "LAN"},
+                "download": 2_000,
+                "upload": 0,
+                "count": 1,
+            },
+        ],
+        60,
+        1,
+        {"gid-1": {"name": "Box One", "model": "FW1"}},
+        limit=1,
+    )
+
+    assert len(top_talkers) == 1
+    assert top_talkers[0]["device_id"] == "dev-2"
+    assert top_talkers[0]["total_bytes"] == 2_000
 
 
 def test_scope_info_and_bandwidth_helpers() -> None:
@@ -215,6 +258,7 @@ class MockClient:
     def __init__(self) -> None:
         self.base_url = "https://example.firewalla.net"
         self.grouped_flow_queries: list[str | None] = []
+        self.flow_queries: list[str | None] = []
         self.device_kwargs: list[dict[str, object]] = []
         self.box_group_filters: list[str | None] = []
 
@@ -238,12 +282,34 @@ class MockClient:
     ) -> list[dict[str, object]]:
         self.device_kwargs.append({"group": group, "box": box})
         gid = box or "gid-1"
-        return [{"gid": gid, "network": {"id": "1", "name": "LAN", "type": "lan"}}]
+        return [
+            {
+                "gid": gid,
+                "id": "dev-1",
+                "name": "Laptop",
+                "network": {"id": "1", "name": "LAN", "type": "lan"},
+            },
+            {
+                "gid": gid,
+                "id": "dev-2",
+                "name": "Tablet",
+                "network": {"id": "1", "name": "LAN", "type": "lan"},
+            },
+        ]
 
     async def async_get_statistics(
         self, stats_type: str, *, group: str | None, limit: int
     ) -> list[dict[str, object]]:
         return [{"meta": {"name": stats_type}, "value": 5}]
+
+    async def async_get_rules(
+        self,
+        *,
+        query: str | None = None,
+        limit: int = 500,
+        cursor: str | None = None,
+    ) -> tuple[list[dict[str, object]], str | None]:
+        return [], None
 
     async def async_get_grouped_flows(
         self,
@@ -262,6 +328,36 @@ class MockClient:
                 "count": 2,
             }
         ]
+
+    async def async_get_flows(
+        self,
+        *,
+        query: str | None = None,
+        limit: int = 500,
+        cursor: str | None = None,
+    ) -> tuple[list[dict[str, object]], str | None]:
+        self.flow_queries.append(query)
+        return (
+            [
+                {
+                    "gid": "gid-1",
+                    "device": {"id": "dev-1", "name": "Laptop"},
+                    "network": {"id": "1", "name": "LAN"},
+                    "download": 1_000,
+                    "upload": 500,
+                    "count": 2,
+                },
+                {
+                    "gid": "gid-1",
+                    "device": {"id": "dev-2", "name": "Tablet"},
+                    "network": {"id": "1", "name": "LAN"},
+                    "download": 2_000,
+                    "upload": 0,
+                    "count": 1,
+                },
+            ],
+            None,
+        )
 
 
 @pytest.mark.asyncio
@@ -283,8 +379,13 @@ async def test_coordinator_update_success_global_scope(hass) -> None:
     assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
     assert result["box_bandwidth"]["gid-1"]["download_bytes"] == 1_250_000
     assert result["network_bandwidth"]["gid-1::1"]["name"] == "LAN"
+    assert result["devices"][0]["id"] == "dev-1"
+    assert result["networks"]["gid-1::1"]["name"] == "LAN"
+    assert result["device_traffic"][0]["device_id"] == "dev-2"
+    assert result["top_talkers"][0]["device_id"] == "dev-2"
     assert result["bandwidth"]["flow_count"] == 2
     assert result["capabilities"]["top_stats"] is True
+    assert result["capabilities"]["top_talkers"] is True
     assert result["scope"]["type"] == SCOPE_GLOBAL
 
 

@@ -43,7 +43,11 @@ class MockSession:
 
     async def get(self, url, **kwargs):
         """Capture GET requests."""
-        self.calls.append({"url": url, **kwargs})
+        return await self.request("GET", url, **kwargs)
+
+    async def request(self, method, url, **kwargs):
+        """Capture arbitrary requests."""
+        self.calls.append({"method": method, "url": url, **kwargs})
         if self._error is not None:
             raise self._error
         return self._response
@@ -360,6 +364,67 @@ async def test_async_get_flows_rejects_invalid_payload_shape() -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_get_rules_parses_payload_and_query_params() -> None:
+    """Test rules payload parsing."""
+    session = MockSession(
+        MockResponse({"results": [{"id": 1}, "skip"], "next_cursor": "next"})
+    )
+    client = FirewallaApiClient(
+        session,
+        "https://example.firewalla.net",
+        "token",
+        verify_ssl=True,
+    )
+
+    items, cursor = await client.async_get_rules(query="box.id:g1", cursor="abc")
+
+    assert items == [{"id": 1}]
+    assert cursor == "next"
+    assert session.calls[0]["params"] == {
+        "limit": "500",
+        "query": "box.id:g1",
+        "cursor": "abc",
+    }
+
+
+@pytest.mark.asyncio
+async def test_async_create_rule_posts_json_payload() -> None:
+    """Test rule creation."""
+    session = MockSession(MockResponse({"id": "rule-1"}))
+    client = FirewallaApiClient(
+        session,
+        "https://example.firewalla.net",
+        "token",
+        verify_ssl=False,
+    )
+
+    result = await client.async_create_rule({"action": "block"})
+
+    assert result == {"id": "rule-1"}
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["json"] == {"action": "block"}
+
+
+@pytest.mark.asyncio
+async def test_async_pause_and_resume_rule_do_not_expect_json() -> None:
+    """Test rule pause and resume requests."""
+    session = MockSession(MockResponse(None))
+    client = FirewallaApiClient(
+        session,
+        "https://example.firewalla.net",
+        "token",
+        verify_ssl=True,
+    )
+
+    await client.async_pause_rule("rule-1")
+    await client.async_resume_rule("rule-2")
+
+    assert session.calls[0]["method"] == "POST"
+    assert session.calls[0]["url"].endswith("/v2/rules/rule-1/pause")
+    assert session.calls[1]["url"].endswith("/v2/rules/rule-2/resume")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("method_name", "args", "kwargs"),
     [
@@ -370,6 +435,7 @@ async def test_async_get_flows_rejects_invalid_payload_shape() -> None:
         ("async_get_devices", (), {}),
         ("async_get_grouped_flows", (), {}),
         ("async_get_flows", (), {}),
+        ("async_get_rules", (), {}),
     ],
 )
 async def test_api_methods_raise_http_error_for_non_auth_failures(

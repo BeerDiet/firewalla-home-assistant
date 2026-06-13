@@ -35,12 +35,13 @@ DEFAULT_VERIFY_SSL = True
 DEFAULT_RECENT_POINTS = 7
 DEFAULT_STATS_LIMIT = 5
 DEFAULT_TRAFFIC_WINDOW_MINUTES: Final = 15
+DEFAULT_TOP_TALKERS_LIMIT: Final = 10
 TRAFFIC_WINDOW_MINUTES_OPTIONS: Final = (1, 5, 15, 30)
 
 OPTIONAL_ENDPOINT_ERRORS: Final = frozenset({"http_400", "http_403", "http_404"})
 TEMPORARY_ENDPOINT_ERRORS: Final = frozenset({"cannot_connect", "http_429"})
 
-PLATFORMS: Final = [Platform.SENSOR]
+PLATFORMS: Final = [Platform.SENSOR, Platform.SWITCH]
 
 TREND_TYPES: tuple[str, ...] = ("flows", "alarms", "rules")
 TOP_STAT_TYPES: tuple[str, ...] = (

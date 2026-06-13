@@ -14,7 +14,6 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfDataRate, UnitOfInformation
 from homeassistant.core import callback
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -158,6 +157,16 @@ SENSOR_DESCRIPTIONS: tuple[FirewallaTrendSensorDescription, ...] = (
         trend_type="upload_mbps",
         source="bandwidth",
     ),
+    FirewallaTrendSensorDescription(
+        key="top_talkers",
+        name="Top Talkers",
+        icon="mdi:account-network-outline",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        trend_type="top_talkers",
+        source="top_talkers",
+    ),
 )
 
 _SOURCE_CAPABILITY = {
@@ -165,6 +174,7 @@ _SOURCE_CAPABILITY = {
     "simple_stats": "simple_stats",
     "top_stats": "top_stats",
     "bandwidth": "bandwidth",
+    "top_talkers": "top_talkers",
 }
 
 PARALLEL_UPDATES = 0
@@ -215,21 +225,13 @@ _GLOBAL_SENSOR_KEYS = {
     "top_region_blocked_flows",
     "current_rules",
     "rules",
+    "top_talkers",
 }
 
 
 async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> None:
     """Set up Firewalla sensors."""
     coordinator = entry.runtime_data
-    try:
-        entity_registry = er.async_get(hass)
-    except TypeError:
-        entity_registry = None
-    if entity_registry is not None:
-        for registry_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
-            if registry_entry.platform != DOMAIN:
-                continue
-            entity_registry.async_remove(registry_entry.entity_id)
 
     entities = [
         FirewallaTrendSensor(coordinator, entry, description)
@@ -252,6 +254,26 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
             for description in SENSOR_DESCRIPTIONS
             if description.key in _PER_BOX_SENSOR_KEYS
         )
+
+    devices = coordinator.data.get("devices", [])
+    if isinstance(devices, list):
+        for device in devices:
+            if not isinstance(device, dict):
+                continue
+            device_id = str(device.get("id") or "").strip()
+            device_gid = str(device.get("gid") or "").strip()
+            device_name = str(device.get("name") or device_id).strip()
+            if not device_id or not device_gid or not device_name:
+                continue
+            entities.append(
+                FirewallaPerDeviceTrafficSensor(
+                    coordinator,
+                    entry,
+                    device_gid,
+                    device_id,
+                    device_name,
+                )
+            )
 
     network_bandwidth = coordinator.data.get("network_bandwidth", {})
     if isinstance(network_bandwidth, dict):
@@ -327,6 +349,105 @@ class FirewallaBaseSensor(CoordinatorEntity, SensorEntity):
         }
 
 
+class FirewallaPerDeviceTrafficSensor(FirewallaBaseSensor):
+    """Representation of a per-device recent traffic sensor."""
+
+    def __init__(
+        self,
+        coordinator,
+        entry: ConfigEntry,
+        box_gid: str,
+        device_id: str,
+        device_name: str,
+    ) -> None:
+        """Initialize the device traffic sensor."""
+        super().__init__(coordinator, entry)
+        self._box_gid = box_gid
+        self._device_id = device_id
+        self._device_name = device_name
+        self._attr_name = f"{device_name} Recent Total Volume"
+        self._attr_unique_id = f"{entry.entry_id}_device_traffic_{box_gid}_{device_id}"
+        self._attr_suggested_object_id = (
+            f"firewalla_{_slugify(device_name)}_recent_total_volume"
+        )
+        self._attr_icon = "mdi:account-network-outline"
+        self._attr_device_class = SensorDeviceClass.DATA_SIZE
+        self._attr_native_unit_of_measurement = UnitOfInformation.GIGABYTES
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device metadata."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._entry.entry_id}_device_{self._box_gid}_{self._device_id}")},
+            name=f"Firewalla {self._device_name}",
+            manufacturer="Firewalla",
+            model="MSP Device",
+            configuration_url=self.coordinator.client.base_url,
+        )
+
+    def _device_traffic(self) -> dict[str, object]:
+        """Return aggregated traffic for the device."""
+        device_traffic = self.coordinator.data.get("device_traffic", [])
+        if not isinstance(device_traffic, list):
+            return {}
+
+        for index, item in enumerate(device_traffic, start=1):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("device_id") or "").strip() != self._device_id:
+                continue
+            if str(item.get("gid") or "").strip() != self._box_gid:
+                continue
+            return {**item, "rank": index}
+
+        return {}
+
+    @property
+    def available(self) -> bool:
+        """Return whether the sensor is available."""
+        capabilities = self.coordinator.data.get("capabilities", {})
+        if not isinstance(capabilities, dict):
+            return False
+        return bool(capabilities.get("top_talkers"))
+
+    @property
+    def native_value(self) -> int | float | None:
+        """Return the total recent transfer volume in GB."""
+        if not self.available:
+            return None
+        traffic = self._device_traffic()
+        value = traffic.get("total_bytes", 0)
+        if not isinstance(value, (int, float)):
+            return 0
+        return _bytes_to_gigabytes(value)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Return device traffic metadata."""
+        attrs = self._scope_attributes()
+        traffic = self._device_traffic()
+        return {
+            "source": "device_traffic",
+            "device_id": self._device_id,
+            "device_name": self._device_name,
+            "box_gid": self._box_gid,
+            "box_name": traffic.get("box_name"),
+            "network_id": traffic.get("network_id"),
+            "network_name": traffic.get("network_name"),
+            "rank": traffic.get("rank"),
+            "raw_total_bytes": traffic.get("total_bytes", 0),
+            "raw_download_bytes": traffic.get("download_bytes", 0),
+            "raw_upload_bytes": traffic.get("upload_bytes", 0),
+            "download_mbps": traffic.get("download_mbps", 0.0),
+            "upload_mbps": traffic.get("upload_mbps", 0.0),
+            "flow_count": traffic.get("flow_count", 0),
+            "window_minutes": traffic.get("window_minutes"),
+            "window_seconds": traffic.get("window_seconds"),
+            **attrs,
+        }
+
+
 class FirewallaTrendSensor(FirewallaBaseSensor):
     """Representation of a Firewalla sensor."""
 
@@ -392,6 +513,18 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
                 return _bytes_to_gigabytes(value)
             return value
 
+        if self.entity_description.source == "top_talkers":
+            top_talkers = self.coordinator.data.get("top_talkers", [])
+            if not isinstance(top_talkers, list) or not top_talkers:
+                return 0
+            leader = top_talkers[0]
+            if not isinstance(leader, dict):
+                return 0
+            value = leader.get("total_bytes")
+            if not isinstance(value, (int, float)):
+                return 0
+            return _bytes_to_gigabytes(value)
+
         trends = self.coordinator.data.get("trends", {})
         if not isinstance(trends, dict):
             return None
@@ -448,6 +581,28 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
                 "window_minutes": bandwidth.get("window_minutes"),
                 "window_seconds": bandwidth.get("window_seconds"),
                 "flow_count": bandwidth.get("flow_count"),
+                **attrs,
+            }
+
+        if self.entity_description.source == "top_talkers":
+            top_talkers = self.coordinator.data.get("top_talkers", [])
+            if not isinstance(top_talkers, list) or not top_talkers:
+                return {"source": "top_talkers", "results": [], **attrs}
+
+            leader = top_talkers[0]
+            if not isinstance(leader, dict):
+                return {"source": "top_talkers", "results": [], **attrs}
+
+            return {
+                "source": "top_talkers",
+                "results": top_talkers,
+                "leader_device_id": leader.get("device_id"),
+                "leader_device_name": leader.get("device_name"),
+                "leader_total_bytes": leader.get("total_bytes"),
+                "leader_download_bytes": leader.get("download_bytes"),
+                "leader_upload_bytes": leader.get("upload_bytes"),
+                "window_minutes": leader.get("window_minutes"),
+                "window_seconds": leader.get("window_seconds"),
                 **attrs,
             }
 

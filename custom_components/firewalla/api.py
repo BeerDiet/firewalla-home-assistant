@@ -65,16 +65,24 @@ class FirewallaApiClient:
         """Return the normalized base URL."""
         return self._base_url
 
-    async def _async_get_json(
-        self, path: str, *, params: dict[str, str] | None = None
-    ) -> object:
-        """Issue a GET request and decode JSON."""
+    async def _async_request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+        json: object | None = None,
+        expect_json: bool = True,
+    ) -> object | None:
+        """Issue an API request and decode JSON when expected."""
         try:
-            response = await self._session.get(
+            response = await self._session.request(
+                method,
                 f"{self._base_url}{path}",
                 params=params,
                 headers={"Authorization": f"Token {self._token}"},
                 ssl=self._verify_ssl,
+                json=json,
             )
             response.raise_for_status()
         except ClientResponseError as err:
@@ -84,7 +92,16 @@ class FirewallaApiClient:
         except ClientError as err:
             raise FirewallaApiError("cannot_connect") from err
 
+        if not expect_json:
+            return None
         return await response.json()
+
+    async def _async_get_json(
+        self, path: str, *, params: dict[str, str] | None = None
+    ) -> object:
+        """Issue a GET request and decode JSON."""
+        result = await self._async_request_json("GET", path, params=params)
+        return result if result is not None else {}
 
     async def async_get_trend(
         self, trend_type: str, group: str | None = None
@@ -258,3 +275,49 @@ class FirewallaApiClient:
             next_cursor = None
 
         return items, next_cursor
+
+    async def async_get_rules(
+        self,
+        *,
+        query: str | None = None,
+        limit: int = 500,
+        cursor: str | None = None,
+    ) -> tuple[list[dict[str, object]], str | None]:
+        """Fetch rules."""
+        params: dict[str, str] = {"limit": str(limit)}
+        if query:
+            params["query"] = query
+        if cursor:
+            params["cursor"] = cursor
+
+        payload = await self._async_get_json("/v2/rules", params=params)
+        if not isinstance(payload, dict):
+            raise FirewallaApiError("invalid_response")
+
+        items = payload.get("results", [])
+        next_cursor = payload.get("next_cursor")
+        if not isinstance(items, list):
+            raise FirewallaApiError("invalid_response")
+        if next_cursor is not None and not isinstance(next_cursor, str):
+            next_cursor = None
+
+        return [item for item in items if isinstance(item, dict)], next_cursor
+
+    async def async_create_rule(self, rule: dict[str, object]) -> dict[str, object]:
+        """Create a rule."""
+        payload = await self._async_request_json("POST", "/v2/rules", json=rule)
+        if not isinstance(payload, dict):
+            raise FirewallaApiError("invalid_response")
+        return payload
+
+    async def async_pause_rule(self, rule_id: str) -> None:
+        """Pause a rule."""
+        await self._async_request_json(
+            "POST", f"/v2/rules/{rule_id}/pause", expect_json=False
+        )
+
+    async def async_resume_rule(self, rule_id: str) -> None:
+        """Resume a rule."""
+        await self._async_request_json(
+            "POST", f"/v2/rules/{rule_id}/resume", expect_json=False
+        )

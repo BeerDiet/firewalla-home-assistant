@@ -49,3 +49,10 @@ views:
           - entity: sensor.firewalla_current_rules
           - entity: sensor.firewalla_online_boxes
           - entity: sensor.firewalla_offline_boxes
+          - entity: sensor.firewalla_top_talkers
+            name: Top Talkers Summary
+      - type: markdown
+        content: >
+          Recent per-device volume sensors and device or network internet-block
+          switches are created dynamically. Add those entities with your own
+          object IDs after the integration discovers devices and networks.

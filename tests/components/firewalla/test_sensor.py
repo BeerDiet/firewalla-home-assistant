@@ -12,6 +12,7 @@ from custom_components.firewalla.sensor import (
     SENSOR_DESCRIPTIONS,
     FirewallaPerBoxNetworkBandwidthSensor,
     FirewallaPerBoxSensor,
+    FirewallaPerDeviceTrafficSensor,
     FirewallaTrendSensor,
     _bytes_to_gigabytes,
     _slugify,
@@ -45,6 +46,14 @@ def _coordinator(scope_id: str | None = None) -> SimpleNamespace:
                     "online": True,
                 }
             ],
+            "devices": [
+                {
+                    "gid": "g1",
+                    "id": "dev-1",
+                    "name": "Laptop",
+                    "network": {"id": "net1", "name": "Main LAN", "type": "lan"},
+                }
+            ],
             "capabilities": {
                 "trends": True,
                 "simple_stats": True,
@@ -52,7 +61,27 @@ def _coordinator(scope_id: str | None = None) -> SimpleNamespace:
                 "bandwidth": True,
                 "box_bandwidth": True,
                 "network_bandwidth": True,
+                "top_talkers": True,
             },
+            "device_traffic": [
+                {
+                    "device_id": "dev-1",
+                    "device_name": "Laptop",
+                    "gid": "g1",
+                    "box_name": "Branch Box",
+                    "box_model": "FW",
+                    "network_id": "net1",
+                    "network_name": "Main LAN",
+                    "download_bytes": 1_000,
+                    "upload_bytes": 500,
+                    "total_bytes": 1_500,
+                    "download_mbps": 0.009,
+                    "upload_mbps": 0.004,
+                    "flow_count": 2,
+                    "window_minutes": 15,
+                    "window_seconds": 900,
+                }
+            ],
             "simple_stats": {
                 "onlineBoxes": 2,
                 "offlineBoxes": 1,
@@ -113,6 +142,36 @@ def _coordinator(scope_id: str | None = None) -> SimpleNamespace:
                     "window_seconds": 900,
                 }
             },
+            "networks": {
+                "g1::net1": {
+                    "id": "net1",
+                    "name": "Main LAN",
+                    "display_name": "Main LAN",
+                    "gid": "g1",
+                    "box_name": "Branch Box",
+                    "box_model": "FW",
+                    "type": "lan",
+                }
+            },
+            "top_talkers": [
+                {
+                    "device_id": "dev-1",
+                    "device_name": "Laptop",
+                    "gid": "g1",
+                    "box_name": "Branch Box",
+                    "box_model": "FW",
+                    "network_id": "net1",
+                    "network_name": "Main LAN",
+                    "download_bytes": 1_000,
+                    "upload_bytes": 500,
+                    "total_bytes": 1_500,
+                    "download_mbps": 0.009,
+                    "upload_mbps": 0.004,
+                    "flow_count": 2,
+                    "window_minutes": 15,
+                    "window_seconds": 900,
+                }
+            ],
         },
     )
 
@@ -206,6 +265,36 @@ def test_trend_sensor_native_value_and_attrs_for_bandwidth() -> None:
     assert sensor.extra_state_attributes["source"] == "grouped_flows"
 
 
+def test_trend_sensor_native_value_and_attrs_for_top_talkers() -> None:
+    """Test top talker sensor values."""
+    entry = _entry()
+    coordinator = _coordinator()
+    description = next(item for item in SENSOR_DESCRIPTIONS if item.key == "top_talkers")
+    sensor = FirewallaTrendSensor(coordinator, entry, description)
+
+    assert sensor.available is True
+    assert sensor.native_value == 0.0
+    assert sensor.extra_state_attributes["source"] == "top_talkers"
+    assert sensor.extra_state_attributes["leader_device_name"] == "Laptop"
+    assert sensor.extra_state_attributes["results"][0]["device_id"] == "dev-1"
+
+
+def test_per_device_traffic_sensor_value_and_attrs() -> None:
+    """Test per-device traffic sensors expose ranked traffic data."""
+    entry = _entry()
+    coordinator = _coordinator()
+    sensor = FirewallaPerDeviceTrafficSensor(
+        coordinator, entry, "g1", "dev-1", "Laptop"
+    )
+
+    assert sensor.available is True
+    assert sensor.native_value == 0.0
+    assert sensor.device_info["name"] == "Firewalla Laptop"
+    assert sensor.extra_state_attributes["rank"] == 1
+    assert sensor.extra_state_attributes["network_name"] == "Main LAN"
+    assert sensor.extra_state_attributes["raw_total_bytes"] == 1_500
+
+
 def test_trend_sensor_formats_recent_volume_in_gigabytes() -> None:
     """Test recent volume sensors display GB while keeping raw bytes in attrs."""
     entry = _entry()
@@ -292,7 +381,10 @@ async def test_async_setup_entry_adds_supported_per_box_entities() -> None:
 
     await async_setup_entry(hass, entry, _add_entities)
 
-    assert len(added) == len(_GLOBAL_SENSOR_KEYS) + len(_PER_BOX_SENSOR_KEYS) + 4
+    assert len(added) == (
+        len(_GLOBAL_SENSOR_KEYS) + len(_PER_BOX_SENSOR_KEYS) + 4 + 1
+    )
+    assert any(isinstance(entity, FirewallaPerDeviceTrafficSensor) for entity in added)
 
 
 async def test_async_setup_entry_ignores_network_rows() -> None:
@@ -312,7 +404,7 @@ async def test_async_setup_entry_ignores_network_rows() -> None:
 
     await async_setup_entry(hass, entry, _add_entities)
 
-    expected = len(_GLOBAL_SENSOR_KEYS) + len(_PER_BOX_SENSOR_KEYS)
+    expected = len(_GLOBAL_SENSOR_KEYS) + len(_PER_BOX_SENSOR_KEYS) + 1
     assert len(added) == expected
 
 
