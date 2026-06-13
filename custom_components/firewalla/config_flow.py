@@ -66,14 +66,11 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                normalized_base_url = normalize_base_url(user_input[CONF_BASE_URL])
                 validation_input = {
                     **entry.data,
-                    CONF_BASE_URL: normalized_base_url,
                     CONF_TOKEN: user_input[CONF_TOKEN],
-                    CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
                 }
-                await self._validate_input(normalized_base_url, validation_input)
+                await self._validate_input(entry.data[CONF_BASE_URL], validation_input)
             except ValueError as err:
                 errors["base"] = str(err)
             except FirewallaApiAuthError:
@@ -83,9 +80,7 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 updated_data = {
                     **entry.data,
-                    CONF_BASE_URL: normalized_base_url,
                     CONF_TOKEN: user_input[CONF_TOKEN],
-                    CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
                 }
                 self.hass.config_entries.async_update_entry(entry, data=updated_data)
                 await self.hass.config_entries.async_reload(entry.entry_id)
@@ -95,15 +90,7 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reauth_confirm",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_BASE_URL,
-                        default=entry.data.get(CONF_BASE_URL, ""),
-                    ): str,
-                    vol.Required(CONF_TOKEN, default=entry.data.get(CONF_TOKEN, "")): str,
-                    vol.Required(
-                        CONF_VERIFY_SSL,
-                        default=entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
-                    ): bool,
+                    vol.Required(CONF_TOKEN, default=""): str,
                 }
             ),
             errors=errors,

@@ -321,9 +321,7 @@ async def test_reauth_flow_updates_existing_entry(hass) -> None:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
-                CONF_BASE_URL: "https://new.firewalla.net",
                 "token": "new-token",
-                CONF_VERIFY_SSL: False,
             },
         )
 
@@ -331,9 +329,9 @@ async def test_reauth_flow_updates_existing_entry(hass) -> None:
     assert result["type"] is data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert updated
-    assert updated.data[CONF_BASE_URL] == "https://new.firewalla.net"
+    assert updated.data[CONF_BASE_URL] == "https://old.firewalla.net"
     assert updated.data["token"] == "new-token"
-    assert updated.data[CONF_VERIFY_SSL] is False
+    assert updated.data[CONF_VERIFY_SSL] is True
     mock_reload.assert_awaited_once_with(entry.entry_id)
 
 
@@ -368,9 +366,7 @@ async def test_reauth_flow_handles_invalid_auth(hass) -> None:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
-                CONF_BASE_URL: "https://new.firewalla.net",
                 "token": "new-token",
-                CONF_VERIFY_SSL: True,
             },
         )
 

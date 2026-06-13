@@ -21,31 +21,31 @@ views:
           legend: true
           fill: false
         entities:
-          - entity: sensor.firewalla_global_msp_download_mbps
+          - entity: sensor.firewalla_download_mbps
             name: Download
             color: "#00acc1"
-          - entity: sensor.firewalla_global_msp_upload_mbps
+          - entity: sensor.firewalla_upload_mbps
             name: Upload
             color: "#fb8c00"
       - type: entities
         title: Throughput
         entities:
-          - entity: sensor.firewalla_global_msp_download_mbps
-          - entity: sensor.firewalla_global_msp_upload_mbps
+          - entity: sensor.firewalla_download_mbps
+          - entity: sensor.firewalla_upload_mbps
       - type: entities
         title: Transfer Volume
         entities:
-          - entity: sensor.firewalla_global_msp_download_recent_volume
+          - entity: sensor.firewalla_download_last_5m
             name: Download Recent Volume
-          - entity: sensor.firewalla_global_msp_upload_recent_volume
+          - entity: sensor.firewalla_upload_last_5m
             name: Upload Recent Volume
       - type: entities
         title: Activity
         entities:
-          - entity: sensor.firewalla_global_msp_blocked_flows
-          - entity: sensor.firewalla_global_msp_alarms
-          - entity: sensor.firewalla_global_msp_rule_activity
+          - entity: sensor.firewalla_flows
+          - entity: sensor.firewalla_alarms
+          - entity: sensor.firewalla_rules
             name: Rule Activity
-          - entity: sensor.firewalla_global_msp_current_rules
-          - entity: sensor.firewalla_global_msp_online_boxes
-          - entity: sensor.firewalla_global_msp_offline_boxes
+          - entity: sensor.firewalla_current_rules
+          - entity: sensor.firewalla_online_boxes
+          - entity: sensor.firewalla_offline_boxes

@@ -4,11 +4,9 @@
     "step": {
       "reauth_confirm": {
         "title": "Reconnect Firewalla",
-        "description": "Update the Firewalla connection details for {name}.",
+        "description": "Enter a new personal access token for {name}.",
         "data": {
-          "base_url": "Firewalla URL",
-          "token": "Personal access token",
-          "verify_ssl": "Verify SSL certificate"
+          "token": "Personal access token"
         }
       },
       "user": {

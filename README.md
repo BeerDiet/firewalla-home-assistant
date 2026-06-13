@@ -178,8 +178,8 @@ These examples are intentionally generic and optional. They are not installed by
 
 Notes for the examples:
 
-- The example entity IDs assume a global-scope entry named `Firewalla`, which produces entities like `sensor.firewalla_global_msp_download_mbps` and `sensor.firewalla_global_msp_download_recent_volume`. If you use a different title or scope, adapt the entity IDs to the names Home Assistant creates for your entry.
-- `sensor.firewalla_global_msp_rule_activity` is recent `Rule Activity`, not your configured rule count. Use `sensor.firewalla_global_msp_current_rules` when you want the current total.
+- The example entity IDs assume a default global-scope entry, which produces entities like `sensor.firewalla_download_mbps`, `sensor.firewalla_download_last_5m`, and `sensor.firewalla_rules`. If you use a scoped entry, Home Assistant appends the scope to the object ID, for example `sensor.firewalla_download_mbps_group_branch`.
+- `sensor.firewalla_rules` is recent `Rule Activity`, not your configured rule count. Use `sensor.firewalla_current_rules` when you want the current total.
 - Recent-volume entities should be labeled generically as `Recent Volume`, with the active range read from each entity's `window_minutes` attribute or from your configured integration option.
 - Wired, wireless, and WireGuard sensors now live under each Firewalla box device when the API exposes those networks.
 

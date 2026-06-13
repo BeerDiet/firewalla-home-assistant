@@ -13,22 +13,22 @@ views:
             square: false
             cards:
               - type: tile
-                entity: sensor.firewalla_global_msp_blocked_flows
+                entity: sensor.firewalla_flows
                 name: Blocked Flows
               - type: tile
-                entity: sensor.firewalla_global_msp_alarms
+                entity: sensor.firewalla_alarms
                 name: Alarm Activity
               - type: tile
-                entity: sensor.firewalla_global_msp_rule_activity
+                entity: sensor.firewalla_rules
                 name: Rule Activity
               - type: tile
-                entity: sensor.firewalla_global_msp_current_rules
+                entity: sensor.firewalla_current_rules
                 name: Current Rules
               - type: tile
-                entity: sensor.firewalla_global_msp_online_boxes
+                entity: sensor.firewalla_online_boxes
                 name: Online Boxes
               - type: tile
-                entity: sensor.firewalla_global_msp_offline_boxes
+                entity: sensor.firewalla_offline_boxes
                 name: Offline Boxes
       - title: Throughput
         cards:
@@ -37,33 +37,33 @@ views:
             square: false
             cards:
               - type: tile
-                entity: sensor.firewalla_global_msp_download_mbps
+                entity: sensor.firewalla_download_mbps
                 name: Internet Download
               - type: tile
-                entity: sensor.firewalla_global_msp_upload_mbps
+                entity: sensor.firewalla_upload_mbps
                 name: Internet Upload
               - type: tile
-                entity: sensor.firewalla_global_msp_download_recent_volume
+                entity: sensor.firewalla_download_last_5m
                 name: Download Recent Volume
               - type: tile
-                entity: sensor.firewalla_global_msp_upload_recent_volume
+                entity: sensor.firewalla_upload_last_5m
                 name: Upload Recent Volume
           - type: history-graph
             title: Internet Throughput
             hours_to_show: 6
             entities:
-              - entity: sensor.firewalla_global_msp_download_mbps
+              - entity: sensor.firewalla_download_mbps
                 name: Download
-              - entity: sensor.firewalla_global_msp_upload_mbps
+              - entity: sensor.firewalla_upload_mbps
                 name: Upload
       - title: Top Stats
         cards:
           - type: entities
             title: Top Stats
             entities:
-              - entity: sensor.firewalla_global_msp_top_box_blocked_flows
-              - entity: sensor.firewalla_global_msp_top_box_security_alarms
-              - entity: sensor.firewalla_global_msp_top_region_blocked_flows
+              - entity: sensor.firewalla_top_box_blocked_flows
+              - entity: sensor.firewalla_top_box_security_alarms
+              - entity: sensor.firewalla_top_region_blocked_flows
       - title: Optional Per-Network Sensors
         cards:
           - type: markdown
