@@ -66,6 +66,36 @@ views:
               - entity: sensor.firewalla_top_region_blocked_flows
               - entity: sensor.firewalla_branch_box_top_talkers
                 name: Branch Box Top Talkers
+          - type: markdown
+            title: Top Downloaders
+            content: >
+              {% set items =
+              state_attr('sensor.firewalla_branch_box_top_talkers',
+              'download_ranked_devices') or [] %}
+              {% if items %}
+              {% for item in items %}
+              {{ item.rank }}. **{{ item.device_name or item.device_id }}**
+              - {{ ((item.bytes | int(0)) / 1000000000) | round(2) }} GB
+              on {{ item.network_name or 'Unknown network' }}
+              {% endfor %}
+              {% else %}
+              No ranked download activity is available for this box.
+              {% endif %}
+          - type: markdown
+            title: Top Uploaders
+            content: >
+              {% set items =
+              state_attr('sensor.firewalla_branch_box_top_talkers',
+              'upload_ranked_devices') or [] %}
+              {% if items %}
+              {% for item in items %}
+              {{ item.rank }}. **{{ item.device_name or item.device_id }}**
+              - {{ ((item.bytes | int(0)) / 1000000000) | round(2) }} GB
+              on {{ item.network_name or 'Unknown network' }}
+              {% endfor %}
+              {% else %}
+              No ranked upload activity is available for this box.
+              {% endif %}
       - title: Dynamic Entities
         cards:
           - type: markdown

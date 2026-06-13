@@ -86,6 +86,8 @@ def test_switch_reports_blocked_state_and_attributes() -> None:
 
     assert entity.available is True
     assert entity.is_on is True
+    assert entity.name == "Laptop Internet Block"
+    assert entity._attr_suggested_object_id == "firewalla_gid_1_laptop_internet_block"
     assert entity.extra_state_attributes["rule_id"] == "rule-1"
     assert entity.extra_state_attributes["rule_status"] == "active"
 
@@ -147,6 +149,8 @@ def test_network_switch_reports_blocked_state_and_attributes() -> None:
 
     assert entity.available is True
     assert entity.is_on is True
+    assert entity.name == "Main LAN Internet Block"
+    assert entity._attr_suggested_object_id == "firewalla_gid_1_main_lan_internet_block"
     assert entity.extra_state_attributes["network_id"] == "net-1"
     assert entity.extra_state_attributes["rule_id"] == "rule-2"
 

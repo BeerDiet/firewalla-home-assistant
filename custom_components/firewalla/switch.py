@@ -217,12 +217,12 @@ class FirewallaDeviceInternetBlockSwitch(FirewallaRuleSwitch):
         super().__init__(coordinator, entry, box_gid)
         self._device_id = device_id
         self._device_name = device_name
-        self._attr_name = "Internet Block"
+        self._attr_name = f"{device_name} Internet Block"
         self._attr_unique_id = (
             f"{entry.entry_id}_device_internet_block_{box_gid}_{device_id}"
         )
         self._attr_suggested_object_id = (
-            f"firewalla_{_slugify(box_gid)}_{_slugify(device_id)}_internet_block"
+            f"firewalla_{_slugify(box_gid)}_{_slugify(device_name)}_internet_block"
         )
         self._attr_entity_description = FirewallaSwitchDescription(
             key="internet_block",
@@ -300,12 +300,12 @@ class FirewallaNetworkInternetBlockSwitch(FirewallaRuleSwitch):
         self._network_id = network_id
         self._network_name = network_name
         self._network_type = network_type
-        self._attr_name = "Internet Block"
+        self._attr_name = f"{network_name} Internet Block"
         self._attr_unique_id = (
             f"{entry.entry_id}_network_internet_block_{network_key}"
         )
         self._attr_suggested_object_id = (
-            f"firewalla_{_slugify(network_key)}_internet_block"
+            f"firewalla_{_slugify(box_gid)}_{_slugify(network_name)}_internet_block"
         )
         self._attr_entity_description = FirewallaSwitchDescription(
             key="internet_block",

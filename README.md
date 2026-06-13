@@ -190,6 +190,7 @@ Example dashboards are included in [`examples/`](./examples):
 
 - [`dashboard-basic.yaml`](./examples/dashboard-basic.yaml) uses built-in Lovelace cards only and focuses on the main integration device sensors.
 - [`dashboard-mini-graph.yaml`](./examples/dashboard-mini-graph.yaml) uses `mini-graph-card` for historical throughput charts on the main integration device sensors.
+- [`card-top-talkers.yaml`](./examples/card-top-talkers.yaml) is a standalone markdown-card example that renders the per-box `download_ranked_devices` and `upload_ranked_devices` attributes as readable lists.
 
 These examples are intentionally generic and optional. They are not installed by the integration and can be adapted to your own dashboard structure.
 
@@ -200,6 +201,7 @@ Notes for the examples:
 - Recent-volume entities should be labeled generically as `Recent Volume`, with the active range read from each entity's `window_minutes` attribute or from your configured integration option.
 - Wired, wireless, and WireGuard sensors now live under each Firewalla box device when the API exposes those networks.
 - Per-box top-talker sensors and device/network block switches are dynamic. Replace the sample box, device, or network entity IDs with ones from your own Home Assistant instance.
+- The top-talker card examples use `sensor.firewalla_branch_box_top_talkers` as a placeholder. Replace that with the actual top-talker sensor for your box device.
 
 ## Development
 
