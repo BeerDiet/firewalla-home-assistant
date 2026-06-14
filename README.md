@@ -1,5 +1,14 @@
 # Firewalla for Home Assistant
 
+[![Validate](https://github.com/BeerDiet/firewalla-home-assistant/actions/workflows/validate.yml/badge.svg)](https://github.com/BeerDiet/firewalla-home-assistant/actions/workflows/validate.yml)
+[![HACS Validation](https://github.com/BeerDiet/firewalla-home-assistant/actions/workflows/hacs.yml/badge.svg)](https://github.com/BeerDiet/firewalla-home-assistant/actions/workflows/hacs.yml)
+[![Hassfest](https://github.com/BeerDiet/firewalla-home-assistant/actions/workflows/hassfest.yml/badge.svg)](https://github.com/BeerDiet/firewalla-home-assistant/actions/workflows/hassfest.yml)
+[![Release](https://github.com/BeerDiet/firewalla-home-assistant/actions/workflows/release.yml/badge.svg)](https://github.com/BeerDiet/firewalla-home-assistant/actions/workflows/release.yml)
+[![HACS](https://img.shields.io/badge/HACS-Custom%20Integration-41BDF5.svg)](https://hacs.xyz/)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-03A9F4.svg)](https://www.home-assistant.io/)
+[![License](https://img.shields.io/github/license/BeerDiet/firewalla-home-assistant)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/BeerDiet/firewalla-home-assistant)](https://github.com/BeerDiet/firewalla-home-assistant/releases)
+
 Custom Home Assistant integration for Firewalla MSP API data.
 
 This integration connects to a Firewalla MSP endpoint with a personal access token, detects the capabilities exposed by the configured scope, and exposes sensor entities for:
