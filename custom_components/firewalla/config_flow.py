@@ -60,8 +60,9 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(self, user_input=None):
         """Handle reauthentication for an existing config entry."""
         errors: dict[str, str] = {}
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
-        if entry is None:
+        try:
+            entry = self._get_reauth_entry()
+        except config_entries.UnknownEntry:
             return self.async_abort(reason="unknown")
 
         if user_input is not None:
@@ -78,13 +79,10 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except FirewallaApiError:
                 errors["base"] = "cannot_connect"
             else:
-                updated_data = {
-                    **entry.data,
-                    CONF_TOKEN: user_input[CONF_TOKEN],
-                }
-                self.hass.config_entries.async_update_entry(entry, data=updated_data)
-                await self.hass.config_entries.async_reload(entry.entry_id)
-                return self.async_abort(reason="reauth_successful")
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={CONF_TOKEN: user_input[CONF_TOKEN]},
+                )
 
         return self.async_show_form(
             step_id="reauth_confirm",
@@ -98,7 +96,10 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure(self, user_input=None):
         """Handle reconfiguration for an existing config entry."""
-        entry = self._get_reconfigure_entry()
+        try:
+            entry = self._get_reconfigure_entry()
+        except config_entries.UnknownEntry:
+            return self.async_abort(reason="unknown")
         self.context["title_placeholders"] = {"name": entry.title}
         errors: dict[str, str] = {}
 
@@ -137,12 +138,15 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_update_reload_and_abort(
                     entry,
                     unique_id=unique_id,
-                    data=updated_data,
+                    data_updates=updated_data,
                 )
 
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=self._build_reconfigure_schema(entry.data),
+            description_placeholders={
+                "base_url_example": "https://example.firewalla.net"
+            },
             errors=errors,
         )
 
@@ -182,6 +186,9 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=self._build_schema(user_input),
+            description_placeholders={
+                "base_url_example": "https://example.firewalla.net"
+            },
             errors=errors,
         )
 

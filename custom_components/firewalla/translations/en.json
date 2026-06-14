@@ -25,7 +25,7 @@
         },
         "data_description": {
           "name": "A friendly name for this Firewalla connection.",
-          "base_url": "The Firewalla MSP base URL, for example https://example.firewalla.net.",
+          "base_url": "The Firewalla MSP base URL, for example {base_url_example}.",
           "token": "Your Firewalla personal access token.",
           "scope_type": "Choose whether to connect to the whole MSP, a group, or a single box.",
           "scope_id": "The group ID or box ID for the selected scope type.",
@@ -47,7 +47,7 @@
         },
         "data_description": {
           "name": "A friendly name for this Firewalla connection.",
-          "base_url": "The Firewalla MSP base URL, for example https://example.firewalla.net.",
+          "base_url": "The Firewalla MSP base URL, for example {base_url_example}.",
           "token": "Your Firewalla personal access token.",
           "scope_type": "Choose whether to connect to the whole MSP, a group, or a single box.",
           "scope_id": "The group ID or box ID for the selected scope type.",
@@ -63,11 +63,11 @@
       "invalid_url": "The URL is not valid.",
       "missing_scope_id": "A scope ID is required for group and box scopes.",
       "unknown_box": "The configured box ID was not found."
+    },
+    "abort": {
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
     }
-  },
-  "abort": {
-    "reauth_successful": "Firewalla connection updated.",
-    "reconfigure_successful": "Firewalla connection updated."
   },
   "options": {
     "step": {

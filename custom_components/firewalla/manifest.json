@@ -1,6 +1,9 @@
 {
   "domain": "firewalla",
   "name": "Firewalla",
+  "codeowners": [
+    "@KenCote"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/BeerDiet/firewalla-home-assistant",
   "integration_type": "service",
@@ -8,9 +11,6 @@
   "issue_tracker": "https://github.com/BeerDiet/firewalla-home-assistant/issues",
   "loggers": [
     "custom_components.firewalla"
-  ],
-  "codeowners": [
-    "@KenCote"
   ],
   "version": "0.4.11"
 }
