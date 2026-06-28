@@ -161,13 +161,15 @@ def _current_scan_interval_display_from_entry(entry) -> str:
     return f"{_current_scan_interval_seconds_from_entry(entry)}s"
 
 
+def _api_daily_limit_display_from_mapping(mapping: dict) -> str:
+    """Resolve the API daily request limit as a display string."""
+    return str(_api_daily_limit_from_mapping(mapping))
+
+
 def _usage_section(entry) -> section:
     """Build the current-usage section for config forms."""
     api_calls_today = _current_api_calls_today_from_entry(entry)
     scan_interval_seconds = _current_scan_interval_seconds_from_entry(entry)
-    current_limit = _api_daily_limit_from_mapping(
-        {**getattr(entry, "data", {}), **getattr(entry, "options", {})}
-    )
     return section(
         vol.Schema(
             {
@@ -184,9 +186,6 @@ def _usage_section(entry) -> section:
                         }
                     }
                 ),
-                vol.Optional(
-                    CONF_API_DAILY_REQUEST_LIMIT, default=current_limit
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
                 vol.Optional(
                     "current_scan_interval",
                     default=scan_interval_seconds,
@@ -214,6 +213,15 @@ def _api_daily_limit_from_mapping(mapping: dict) -> int:
         return max(int(value), 1)
     except (TypeError, ValueError):
         return DEFAULT_API_DAILY_REQUEST_LIMIT
+
+
+def _traffic_window_minutes_from_mapping(mapping: dict) -> int:
+    """Resolve the traffic window minutes from a config mapping."""
+    value = mapping.get(CONF_TRAFFIC_WINDOW_MINUTES, DEFAULT_TRAFFIC_WINDOW_MINUTES)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_TRAFFIC_WINDOW_MINUTES
 
 
 def _effective_scan_interval_from_mapping(mapping: dict) -> int:
@@ -533,9 +541,15 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _build_reconfigure_schema(self, entry) -> vol.Schema:
         """Build the reconfigure schema."""
         entry_data = entry.data
+        current_limit = _api_daily_limit_display_from_mapping(
+            {**entry.data, **entry.options}
+        )
         return vol.Schema(
             {
                 vol.Optional("current_usage", default={}): _usage_section(entry),
+                vol.Optional(
+                    CONF_API_DAILY_REQUEST_LIMIT, default=current_limit
+                ): str,
                 vol.Optional(
                     CONF_NAME, default=entry_data.get(CONF_NAME, "Firewalla")
                 ): str,
@@ -604,6 +618,11 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                 DEFAULT_TRAFFIC_WINDOW_MINUTES,
             ),
         )
+        current_window = str(
+            _traffic_window_minutes_from_mapping(
+                {CONF_TRAFFIC_WINDOW_MINUTES: current_window}
+            )
+        )
 
         return self.async_show_form(
             step_id="init",
@@ -612,10 +631,27 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional("current_usage", default={}): _usage_section(
                         self._config_entry
                     ),
+                    vol.Optional(
+                        CONF_API_DAILY_REQUEST_LIMIT,
+                        default=_api_daily_limit_display_from_mapping(
+                            {
+                                **self._config_entry.data,
+                                **self._config_entry.options,
+                            }
+                        ),
+                    ): str,
                     vol.Required(
                         CONF_TRAFFIC_WINDOW_MINUTES, default=current_window
-                    ): vol.All(
-                        vol.Coerce(int), vol.In(TRAFFIC_WINDOW_MINUTES_OPTIONS)
+                    ): selector(
+                        {
+                            "select": {
+                                "options": [
+                                    str(option)
+                                    for option in TRAFFIC_WINDOW_MINUTES_OPTIONS
+                                ],
+                                "mode": "list",
+                            }
+                        }
                     ),
                 }
             ),

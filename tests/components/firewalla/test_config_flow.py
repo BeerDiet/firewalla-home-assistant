@@ -232,17 +232,15 @@ async def test_options_flow_uses_current_scan_interval(hass) -> None:
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
-            "current_usage": {
-                CONF_API_DAILY_REQUEST_LIMIT: 3000,
-            },
-            CONF_TRAFFIC_WINDOW_MINUTES: 30,
+            CONF_API_DAILY_REQUEST_LIMIT: "3000",
+            CONF_TRAFFIC_WINDOW_MINUTES: "30",
         },
     )
     assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"] == {
         CONF_API_DAILY_REQUEST_LIMIT: DEFAULT_API_DAILY_REQUEST_LIMIT,
         CONF_SCAN_INTERVAL: 360,
-        CONF_TRAFFIC_WINDOW_MINUTES: 30,
+        CONF_TRAFFIC_WINDOW_MINUTES: "30",
     }
 
 
@@ -266,15 +264,13 @@ async def test_options_flow_accepts_string_traffic_window(hass) -> None:
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
-            "current_usage": {
-                CONF_API_DAILY_REQUEST_LIMIT: 3000,
-            },
+            CONF_API_DAILY_REQUEST_LIMIT: "3000",
             CONF_TRAFFIC_WINDOW_MINUTES: "30",
         },
     )
 
     assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_TRAFFIC_WINDOW_MINUTES] == 30
+    assert result["data"][CONF_TRAFFIC_WINDOW_MINUTES] == "30"
 
 
 async def test_options_flow_shows_api_usage_summary(hass) -> None:
@@ -306,16 +302,15 @@ async def test_options_flow_shows_api_usage_summary(hass) -> None:
     serialized = result["data_schema"]({})
     usage = serialized["current_usage"]
     assert usage["current_api_calls_today"] == 1331.0
-    assert usage["api_daily_request_limit"] == 3000
     assert usage["current_scan_interval"] == 648.0
+    assert serialized[CONF_TRAFFIC_WINDOW_MINUTES] == "15"
+    assert serialized[CONF_TRAFFIC_WINDOW_MINUTES] == "15"
+    assert serialized[CONF_API_DAILY_REQUEST_LIMIT] == "3000"
     schema = result["data_schema"].schema
     section_schema = schema["current_usage"]
     assert section_schema.schema.schema["current_api_calls_today"].serialize() == {
         "selector": {"number": {"min": 1331.0, "max": 1331.0, "mode": "box", "step": 1.0}}
     }
-    assert section_schema.schema.schema["api_daily_request_limit"] == section_schema.schema.schema[
-        "api_daily_request_limit"
-    ]
     assert section_schema.schema.schema["current_scan_interval"].serialize() == {
         "selector": {
             "number": {
@@ -353,8 +348,10 @@ async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None
     serialized = result["data_schema"]({})
     usage = serialized["current_usage"]
     assert usage["current_api_calls_today"] == 1331.0
-    assert usage["api_daily_request_limit"] == 3000
     assert usage["current_scan_interval"] == 648.0
+    assert serialized[CONF_API_DAILY_REQUEST_LIMIT] == "3000"
+    assert serialized[CONF_TRAFFIC_WINDOW_MINUTES] == "15"
+    assert serialized[CONF_TRAFFIC_WINDOW_MINUTES] == "15"
     schema = result["data_schema"].schema
     section_schema = schema["current_usage"]
     assert section_schema.schema.schema["current_api_calls_today"].serialize() == {
@@ -597,7 +594,7 @@ async def test_reconfigure_flow_updates_entry(hass) -> None:
     serialized = result["data_schema"]({})
     usage = serialized["current_usage"]
     assert usage["current_api_calls_today"] == 1331.0
-    assert usage["api_daily_request_limit"] == 3000
+    assert serialized[CONF_API_DAILY_REQUEST_LIMIT] == "3000"
     assert usage["current_scan_interval"] == 648.0
 
     with patch(
@@ -681,9 +678,7 @@ async def test_reconfigure_flow_aborts_on_conflict(hass) -> None:
                 CONF_SCOPE_TYPE: SCOPE_GROUP,
                 CONF_SCOPE_ID: "branch-office",
                 CONF_VERIFY_SSL: True,
-                "current_usage": {
-                    CONF_API_DAILY_REQUEST_LIMIT: 3000,
-                },
+                CONF_API_DAILY_REQUEST_LIMIT: "3000",
             },
         )
 
