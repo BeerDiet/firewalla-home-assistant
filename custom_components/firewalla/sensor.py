@@ -12,12 +12,17 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfDataRate, UnitOfInformation
+from homeassistant.const import UnitOfDataRate, UnitOfInformation, UnitOfTime
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DEFAULT_RECENT_POINTS, DOMAIN
+from .const import (
+    CONF_API_DAILY_REQUEST_LIMIT,
+    DEFAULT_API_DAILY_REQUEST_LIMIT,
+    DEFAULT_RECENT_POINTS,
+    DOMAIN,
+)
 
 
 def _slugify(value: str) -> str:
@@ -39,7 +44,14 @@ class FirewallaTrendSensorDescription(SensorEntityDescription):
     source: str = "trends"
 
 
-SENSOR_DESCRIPTIONS: tuple[FirewallaTrendSensorDescription, ...] = (
+@dataclass(frozen=True, kw_only=True)
+class FirewallaEntrySensorDescription(SensorEntityDescription):
+    """Describe a Firewalla entry-level sensor."""
+
+    metric: str
+
+
+SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     FirewallaTrendSensorDescription(
         key="flows",
         name="Blocked Flows",
@@ -159,13 +171,34 @@ SENSOR_DESCRIPTIONS: tuple[FirewallaTrendSensorDescription, ...] = (
     ),
     FirewallaTrendSensorDescription(
         key="api_calls_today",
-        name="API Calls Today",
+        name="Current API Calls Today",
         icon="mdi:api",
         state_class=SensorStateClass.TOTAL,
         trend_type="daily_total",
         source="api_calls",
     ),
 )
+
+ENTRY_SENSOR_DESCRIPTIONS: tuple[FirewallaEntrySensorDescription, ...] = (
+    FirewallaEntrySensorDescription(
+        key="api_daily_request_limit",
+        name="Daily API Usage Limit",
+        icon="mdi:counter",
+        state_class=SensorStateClass.MEASUREMENT,
+        metric="api_daily_request_limit",
+    ),
+    FirewallaEntrySensorDescription(
+        key="current_scan_interval",
+        name="Current Scan Interval",
+        icon="mdi:timer-outline",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        metric="current_scan_interval",
+    ),
+)
+
+SENSOR_DESCRIPTIONS = SENSOR_DESCRIPTIONS + ENTRY_SENSOR_DESCRIPTIONS
 
 _SOURCE_CAPABILITY = {
     "trends": "trends",
@@ -223,6 +256,8 @@ _GLOBAL_SENSOR_KEYS = {
     "current_rules",
     "rules",
     "api_calls_today",
+    "api_daily_request_limit",
+    "current_scan_interval",
 }
 
 
@@ -231,7 +266,11 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities) -> Non
     coordinator = entry.runtime_data
 
     entities = [
-        FirewallaTrendSensor(coordinator, entry, description)
+        (
+            FirewallaEntrySensor(coordinator, entry, description)
+            if isinstance(description, FirewallaEntrySensorDescription)
+            else FirewallaTrendSensor(coordinator, entry, description)
+        )
         for description in SENSOR_DESCRIPTIONS
         if description.key in _GLOBAL_SENSOR_KEYS
     ]
@@ -325,6 +364,24 @@ class FirewallaBaseSensor(CoordinatorEntity, SensorEntity):
             "scope_id": self.coordinator.scope_id,
             "scope_label": self.coordinator.scope_type,
         }
+
+
+def _api_daily_request_limit_from_entry(entry: ConfigEntry) -> int:
+    """Return the configured daily API request limit for the entry."""
+    options = getattr(entry, "options", {})
+    data = getattr(entry, "data", {})
+    if not isinstance(options, dict):
+        options = {}
+    if not isinstance(data, dict):
+        data = {}
+    value = options.get(
+        CONF_API_DAILY_REQUEST_LIMIT,
+        data.get(CONF_API_DAILY_REQUEST_LIMIT, DEFAULT_API_DAILY_REQUEST_LIMIT),
+    )
+    try:
+        return max(int(value), 1)
+    except (TypeError, ValueError):
+        return DEFAULT_API_DAILY_REQUEST_LIMIT
 
 
 class FirewallaPerBoxTopTalkersSensor(FirewallaBaseSensor):
@@ -598,6 +655,52 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
     def _handle_coordinator_update(self) -> None:
         """Handle updated coordinator data."""
         self.async_write_ha_state()
+
+
+class FirewallaEntrySensor(FirewallaBaseSensor):
+    """Representation of a Firewalla entry-level sensor."""
+
+    def __init__(
+        self,
+        coordinator,
+        entry: ConfigEntry,
+        description: FirewallaEntrySensorDescription,
+    ) -> None:
+        """Initialize the entry sensor."""
+        super().__init__(coordinator, entry)
+        self.entity_description = description
+        self._attr_name = description.name
+        self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+        self._attr_suggested_object_id = f"firewalla_{_slugify(description.key)}"
+
+    @property
+    def available(self) -> bool:
+        """Return whether the sensor is available."""
+        return True
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the current sensor state."""
+        metric = self.entity_description.metric
+        if metric == "api_daily_request_limit":
+            return _api_daily_request_limit_from_entry(self._entry)
+        if metric == "current_scan_interval":
+            return int(getattr(self.coordinator, "effective_scan_seconds", 0) or 0)
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Return entry sensor attributes."""
+        attrs = self._scope_attributes()
+        api_calls = self.coordinator.data.get("api_calls", {})
+        if not isinstance(api_calls, dict):
+            api_calls = {}
+        return {
+            "source": "entry_settings",
+            "metric": self.entity_description.metric,
+            **api_calls,
+            **attrs,
+        }
 
 
 class FirewallaPerBoxSensor(FirewallaBaseSensor):

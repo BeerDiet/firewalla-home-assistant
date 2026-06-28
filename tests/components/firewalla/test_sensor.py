@@ -11,6 +11,7 @@ from custom_components.firewalla.sensor import (
     _PER_BOX_SENSOR_KEYS,
     SENSOR_DESCRIPTIONS,
     FirewallaBaseSensor,
+    FirewallaEntrySensor,
     FirewallaPerBoxNetworkBandwidthSensor,
     FirewallaPerBoxSensor,
     FirewallaPerBoxTopTalkersSensor,
@@ -228,10 +229,43 @@ def test_api_calls_sensor_reports_daily_total() -> None:
     sensor = FirewallaTrendSensor(coordinator, entry, description)
 
     assert sensor.available is True
+    assert sensor.entity_description.name == "Current API Calls Today"
     assert sensor.native_value == 42
     assert sensor.extra_state_attributes["source"] == "api_calls"
     assert sensor.extra_state_attributes["daily_total"] == 42
     assert sensor.extra_state_attributes["next_reset"] == "2026-06-29T00:00:00-04:00"
+
+
+def test_entry_sensor_reports_daily_limit() -> None:
+    """Test the configured API limit sensor reports the entry limit."""
+    entry = _entry()
+    coordinator = _coordinator()
+    description = next(
+        item for item in SENSOR_DESCRIPTIONS if item.key == "api_daily_request_limit"
+    )
+    sensor = FirewallaEntrySensor(coordinator, entry, description)
+
+    assert sensor.available is True
+    assert sensor.entity_description.name == "Daily API Usage Limit"
+    assert sensor.native_value == 3000
+    assert sensor.extra_state_attributes["source"] == "entry_settings"
+    assert sensor.extra_state_attributes["metric"] == "api_daily_request_limit"
+
+
+def test_entry_sensor_reports_current_scan_interval() -> None:
+    """Test the current scan interval sensor reports the coordinator interval."""
+    entry = _entry()
+    coordinator = _coordinator()
+    coordinator.effective_scan_seconds = 648
+    description = next(
+        item for item in SENSOR_DESCRIPTIONS if item.key == "current_scan_interval"
+    )
+    sensor = FirewallaEntrySensor(coordinator, entry, description)
+
+    assert sensor.available is True
+    assert sensor.entity_description.name == "Current Scan Interval"
+    assert sensor.native_value == 648
+    assert sensor.extra_state_attributes["metric"] == "current_scan_interval"
 
 
 def test_trend_sensor_handles_missing_simple_stats_value() -> None:

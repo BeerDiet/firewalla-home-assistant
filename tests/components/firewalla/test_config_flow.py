@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_NAME
-from homeassistant.util import dt as dt_util
 
 from custom_components.firewalla.api import FirewallaApiAuthError, FirewallaApiError
 from custom_components.firewalla.config_flow import (
@@ -300,15 +299,10 @@ async def test_options_flow_shows_api_usage_summary(hass) -> None:
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
-    expected_timestamp = dt_util.as_local(
-        dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
-    ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
     serialized = result["data_schema"]({})
-    assert serialized["current_usage_display"] == (
-        "Current scan interval: 648s\n"
-        "Current API calls: 1331\n"
-        f"as of {expected_timestamp}"
-    )
+    assert serialized["current_api_calls_today"] == "1331"
+    assert serialized["api_daily_request_limit"] == 3000
+    assert serialized["current_scan_interval"] == "648s"
 
 
 async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None:
@@ -332,15 +326,10 @@ async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
-    expected_timestamp = dt_util.as_local(
-        dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
-    ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
     serialized = result["data_schema"]({})
-    assert serialized["current_usage_display"] == (
-        "Current scan interval: 648s\n"
-        "Current API calls: 1331\n"
-        f"as of {expected_timestamp}"
-    )
+    assert serialized["current_api_calls_today"] == "1331"
+    assert serialized["api_daily_request_limit"] == 3000
+    assert serialized["current_scan_interval"] == "648s"
 
 
 async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
@@ -564,15 +553,10 @@ async def test_reconfigure_flow_updates_entry(hass) -> None:
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
-    expected_timestamp = dt_util.as_local(
-        dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
-    ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
     serialized = result["data_schema"]({})
-    assert serialized["current_usage_display"] == (
-        "Current scan interval: 648s\n"
-        "Current API calls: 1331\n"
-        f"as of {expected_timestamp}"
-    )
+    assert serialized["current_api_calls_today"] == "1331"
+    assert serialized["api_daily_request_limit"] == 3000
+    assert serialized["current_scan_interval"] == "648s"
 
     with patch(
         "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",
