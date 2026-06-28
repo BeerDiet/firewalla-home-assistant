@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import Mock
 
 import pytest
 from aiohttp import ClientError, ClientResponseError
@@ -114,6 +115,41 @@ def test_api_call_tracker_rolls_over_each_day() -> None:
     second_snapshot = tracker.snapshot()
     assert second_snapshot["daily_total"] == 1
     assert second_snapshot["day_start"] == "2026-06-29T00:00:00+00:00"
+
+
+def test_api_call_tracker_restores_persisted_state() -> None:
+    """Test persisted usage is restored across tracker instances."""
+
+    def now() -> datetime:
+        return datetime(2026, 6, 28, 12, 0, tzinfo=UTC)
+
+    tracker = FirewallaApiCallTracker(
+        now,
+        initial_state={
+            "daily_total": 42,
+            "day_start": "2026-06-28T00:00:00+00:00",
+            "last_attempt_at": "2026-06-28T11:24:00+00:00",
+        },
+    )
+
+    assert tracker.snapshot()["daily_total"] == 42
+
+
+def test_api_call_tracker_persists_snapshot_after_attempt() -> None:
+    """Test tracker writes the updated snapshot after each request attempt."""
+
+    persisted = Mock()
+    tracker = FirewallaApiCallTracker(
+        lambda: datetime(2026, 6, 28, 12, 0, tzinfo=UTC),
+        state_writer=persisted,
+    )
+
+    tracker.record_attempt()
+
+    persisted.assert_called_once()
+    snapshot = persisted.call_args.args[0]
+    assert snapshot["daily_total"] == 1
+    assert snapshot["day_start"] == "2026-06-28T00:00:00+00:00"
 
 
 @pytest.mark.asyncio

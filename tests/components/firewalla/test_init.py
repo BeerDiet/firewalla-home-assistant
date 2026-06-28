@@ -5,9 +5,12 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.util import dt as dt_util
 
 from custom_components.firewalla import async_migrate_entry, async_setup
 from custom_components.firewalla.const import (
+    CONF_API_CALL_STATS,
+    CONF_BASE_URL,
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
     DOMAIN,
@@ -54,6 +57,53 @@ async def test_setup_and_unload_entry(hass) -> None:
 
         assert await hass.config_entries.async_unload(entry.entry_id)
         assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_setup_entry_restores_persisted_api_usage(hass) -> None:
+    """Test setup restores the API tally stored on the entry."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla",
+        data={
+            CONF_BASE_URL: "https://example.firewalla.net",
+            "token": "abc123",
+            "verify_ssl": True,
+            CONF_SCOPE_TYPE: SCOPE_GLOBAL,
+            "scan_interval": 300,
+            "name": "Firewalla",
+            CONF_API_CALL_STATS: {
+                "daily_total": 1331,
+                "day_start": "2026-06-28T00:00:00-04:00",
+                "last_attempt_at": "2026-06-28T11:24:00-04:00",
+            },
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.firewalla.dt_util.now",
+            return_value=dt_util.parse_datetime("2026-06-28T12:00:00-04:00"),
+        ),
+        patch(
+            "custom_components.firewalla.FirewallaTrendsCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+        patch(
+            "homeassistant.config_entries.ConfigEntries.async_forward_entry_setups",
+            new=AsyncMock(),
+        ),
+        patch(
+            "homeassistant.config_entries.ConfigEntries.async_unload_platforms",
+            new=AsyncMock(return_value=True),
+        ),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        assert entry.runtime_data is not None
+        assert (
+            entry.runtime_data.client.api_call_stats()["daily_total"] == 1331
+        )
+        assert int(entry.runtime_data.update_interval.total_seconds()) == 660
 
 
 async def test_async_setup_returns_true(hass) -> None:

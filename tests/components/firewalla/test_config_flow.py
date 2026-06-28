@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,6 +17,7 @@ from custom_components.firewalla.config_flow import (
     FirewallaOptionsFlow,
 )
 from custom_components.firewalla.const import (
+    CONF_API_CALL_STATS,
     CONF_API_DAILY_REQUEST_LIMIT,
     CONF_BASE_URL,
     CONF_SCAN_INTERVAL,
@@ -51,7 +53,6 @@ async def test_user_flow_creates_global_entry(hass) -> None:
                 "token": "abc123",
                 CONF_SCOPE_TYPE: SCOPE_GLOBAL,
                 CONF_SCOPE_ID: "",
-                CONF_SCAN_INTERVAL: 300,
                 CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
@@ -81,7 +82,6 @@ async def test_user_flow_creates_group_entry_with_generated_title(hass) -> None:
                 "token": "abc123",
                 CONF_SCOPE_TYPE: SCOPE_GROUP,
                 CONF_SCOPE_ID: "  branch-office  ",
-                CONF_SCAN_INTERVAL: 300,
                 CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
@@ -111,7 +111,6 @@ async def test_user_flow_creates_box_entry(hass) -> None:
                 "token": "abc123",
                 CONF_SCOPE_TYPE: SCOPE_BOX,
                 CONF_SCOPE_ID: "gid-1",
-                CONF_SCAN_INTERVAL: 300,
                 CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
@@ -140,7 +139,6 @@ async def test_user_flow_invalid_auth(hass) -> None:
                 "token": "abc123",
                 CONF_SCOPE_TYPE: SCOPE_GLOBAL,
                 CONF_SCOPE_ID: "",
-                CONF_SCAN_INTERVAL: 300,
                 CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
@@ -163,7 +161,6 @@ async def test_user_flow_invalid_url(hass) -> None:
             "token": "abc123",
             CONF_SCOPE_TYPE: SCOPE_GLOBAL,
             CONF_SCOPE_ID: "",
-            CONF_SCAN_INTERVAL: 300,
             CONF_TRAFFIC_WINDOW_MINUTES: 15,
             CONF_VERIFY_SSL: True,
         },
@@ -190,7 +187,6 @@ async def test_user_flow_cannot_connect(hass) -> None:
                 "token": "abc123",
                 CONF_SCOPE_TYPE: SCOPE_GLOBAL,
                 CONF_SCOPE_ID: "",
-                CONF_SCAN_INTERVAL: 300,
                 CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
@@ -210,25 +206,24 @@ async def test_user_flow_requires_scope_id_for_non_global_scope(hass) -> None:
         {
             "name": "Firewalla",
             CONF_BASE_URL: "https://example.firewalla.net",
-            "token": "abc123",
-            CONF_SCOPE_TYPE: SCOPE_GROUP,
-            CONF_SCOPE_ID: "",
-            CONF_SCAN_INTERVAL: 300,
-            CONF_TRAFFIC_WINDOW_MINUTES: 15,
-            CONF_VERIFY_SSL: True,
-        },
-    )
+                "token": "abc123",
+                CONF_SCOPE_TYPE: SCOPE_GROUP,
+                CONF_SCOPE_ID: "",
+                CONF_TRAFFIC_WINDOW_MINUTES: 15,
+                CONF_VERIFY_SSL: True,
+            },
+        )
 
     assert result["errors"] == {"base": "missing_scope_id"}
 
 
 async def test_options_flow_uses_current_scan_interval(hass) -> None:
-    """Test options flow shows and stores scan interval."""
+    """Test options flow derives and stores scan interval."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Firewalla",
-        data={CONF_SCAN_INTERVAL: 120, CONF_TRAFFIC_WINDOW_MINUTES: 15},
-        options={CONF_SCAN_INTERVAL: 240, CONF_TRAFFIC_WINDOW_MINUTES: 5},
+        data={CONF_SCOPE_TYPE: SCOPE_GLOBAL, CONF_TRAFFIC_WINDOW_MINUTES: 15},
+        options={CONF_TRAFFIC_WINDOW_MINUTES: 5},
     )
     entry.add_to_hass(hass)
 
@@ -236,7 +231,11 @@ async def test_options_flow_uses_current_scan_interval(hass) -> None:
     assert result["type"] is data_entry_flow.FlowResultType.FORM
 
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_SCAN_INTERVAL: 300, CONF_TRAFFIC_WINDOW_MINUTES: 30}
+        result["flow_id"],
+        {
+            CONF_API_DAILY_REQUEST_LIMIT: 3000,
+            CONF_TRAFFIC_WINDOW_MINUTES: 30,
+        },
     )
     assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"] == {
@@ -267,7 +266,6 @@ async def test_options_flow_accepts_string_traffic_window(hass) -> None:
         result["flow_id"],
         {
             CONF_API_DAILY_REQUEST_LIMIT: 3000,
-            CONF_SCAN_INTERVAL: 360,
             CONF_TRAFFIC_WINDOW_MINUTES: "30",
         },
     )
@@ -289,12 +287,42 @@ async def test_options_flow_shows_api_usage_summary(hass) -> None:
         options={CONF_TRAFFIC_WINDOW_MINUTES: 15},
     )
     entry.runtime_data = SimpleNamespace(
+        update_interval=timedelta(seconds=660),
         data={
             "api_calls": {
                 "daily_total": 1331,
                 "last_attempt_at": "2026-06-28T11:24:00-04:00",
             }
         }
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    expected_timestamp = dt_util.as_local(
+        dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
+    ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
+    assert result["description_placeholders"]["api_calls_summary"] == (
+        f"{expected_timestamp} -- 1331/3000 API calls made"
+    )
+
+
+async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None:
+    """Test options flow falls back to the stored tally when runtime data is missing."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla",
+        data={
+            CONF_SCOPE_TYPE: SCOPE_GLOBAL,
+            CONF_SCAN_INTERVAL: 360,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
+            CONF_API_CALL_STATS: {
+                "daily_total": 1331,
+                "last_attempt_at": "2026-06-28T11:24:00-04:00",
+            },
+        },
+        options={CONF_TRAFFIC_WINDOW_MINUTES: 15},
     )
     entry.add_to_hass(hass)
 
@@ -344,7 +372,6 @@ async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
                 "token": "abc123",
                 CONF_SCOPE_TYPE: SCOPE_GROUP,
                 CONF_SCOPE_ID: "branch-office",
-                CONF_SCAN_INTERVAL: 300,
                 CONF_TRAFFIC_WINDOW_MINUTES: 15,
                 CONF_VERIFY_SSL: True,
             },
@@ -454,7 +481,6 @@ async def test_reauth_flow_handles_connection_error(hass) -> None:
             CONF_BASE_URL: "https://old.firewalla.net",
             "token": "old-token",
             CONF_SCOPE_TYPE: SCOPE_GLOBAL,
-            CONF_SCAN_INTERVAL: 300,
             CONF_TRAFFIC_WINDOW_MINUTES: 15,
             CONF_VERIFY_SSL: True,
         },
@@ -539,6 +565,7 @@ async def test_reconfigure_flow_updates_entry(hass) -> None:
     assert result["description_placeholders"]["api_calls_summary"] == (
         f"{expected_timestamp} -- 1331/3000 API calls made"
     )
+    assert result["description_placeholders"]["current_scan_interval_seconds"] == "660"
 
     with patch(
         "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",
@@ -639,7 +666,6 @@ def test_build_schema_uses_defaults() -> None:
     assert serialized[CONF_BASE_URL] == "https://dn-knzvvk.firewalla.net"
     assert serialized[CONF_SCOPE_TYPE] == SCOPE_GLOBAL
     assert serialized[CONF_API_DAILY_REQUEST_LIMIT] == DEFAULT_API_DAILY_REQUEST_LIMIT
-    assert serialized[CONF_SCAN_INTERVAL] == 360
     assert serialized[CONF_TRAFFIC_WINDOW_MINUTES] == DEFAULT_TRAFFIC_WINDOW_MINUTES
     assert serialized[CONF_VERIFY_SSL] is True
 

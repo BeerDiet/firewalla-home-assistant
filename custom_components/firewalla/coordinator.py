@@ -11,20 +11,20 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import FirewallaApiAuthError, FirewallaApiClient, FirewallaApiError
 from .const import (
     API_REQUESTS_PER_REFRESH_BOX,
     API_REQUESTS_PER_REFRESH_GLOBAL,
     API_REQUESTS_PER_REFRESH_GROUP,
+    CONF_API_CALL_STATS,
     CONF_API_DAILY_REQUEST_LIMIT,
     CONF_GROUP,
-    CONF_SCAN_INTERVAL,
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
     CONF_TRAFFIC_WINDOW_MINUTES,
     DEFAULT_API_DAILY_REQUEST_LIMIT,
-    DEFAULT_SCAN_INTERVAL,
     DEFAULT_STATS_LIMIT,
     DEFAULT_TOP_TALKERS_LIMIT,
     DEFAULT_TRAFFIC_WINDOW_MINUTES,
@@ -126,6 +126,35 @@ def _minimum_scan_interval_seconds(scope_type: str, daily_limit: int) -> int:
         (24 * 60 * 60 * requests_per_refresh) / safe_daily_limit
     )
     return ((minimum_seconds + 59) // 60) * 60
+
+
+def _adaptive_scan_interval_seconds(
+    scope_type: str,
+    daily_limit: int,
+    api_calls: dict[str, object] | None,
+    now: datetime | None = None,
+) -> int:
+    """Return the next polling interval based on the current daily usage."""
+    current_now = now or dt_util.now()
+    baseline_seconds = _minimum_scan_interval_seconds(scope_type, daily_limit)
+    if not isinstance(api_calls, dict):
+        return baseline_seconds
+
+    daily_total = max(_safe_int(api_calls.get("daily_total")), 0)
+    safe_daily_limit = max(int(daily_limit), 1)
+    remaining_requests = max(safe_daily_limit - daily_total, 1)
+    scaled_seconds = math.ceil(
+        baseline_seconds * safe_daily_limit / remaining_requests
+    )
+
+    next_reset = api_calls.get("next_reset")
+    if isinstance(next_reset, str):
+        reset_at = dt_util.parse_datetime(next_reset)
+        if reset_at is not None:
+            remaining_seconds = max(int((reset_at - current_now).total_seconds()), 1)
+            scaled_seconds = min(scaled_seconds, remaining_seconds)
+
+    return max(((scaled_seconds + 59) // 60) * 60, baseline_seconds)
 
 
 def _box_map(boxes: list[dict[str, object]]) -> dict[str, dict[str, object]]:
@@ -612,23 +641,17 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self._rate_limited_until: datetime | None = None
         self._rate_limit_attempts = 0
 
-        configured_scan_seconds = entry.options.get(
-            CONF_SCAN_INTERVAL,
-            entry.data.get(
-                CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds())
-            ),
-        )
         self._minimum_scan_seconds = _minimum_scan_interval_seconds(
             self.scope_type, self.api_daily_request_limit
         )
-        scan_seconds = max(int(configured_scan_seconds), self._minimum_scan_seconds)
-        if scan_seconds > int(configured_scan_seconds):
-            _LOGGER.warning(
-                "Firewalla scan interval %s seconds is below the budget-safe minimum of %s seconds; using %s seconds",
-                configured_scan_seconds,
-                self._minimum_scan_seconds,
-                scan_seconds,
-            )
+        initial_api_calls = entry.data.get(CONF_API_CALL_STATS) or entry.data.get(
+            "api_calls"
+        )
+        scan_seconds = _adaptive_scan_interval_seconds(
+            self.scope_type,
+            self.api_daily_request_limit,
+            initial_api_calls if isinstance(initial_api_calls, dict) else None,
+        )
 
         super().__init__(
             hass,
@@ -1008,6 +1031,22 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "box_bandwidth": box_bandwidth,
                 "network_bandwidth": network_bandwidth,
             }
+            next_scan_seconds = _adaptive_scan_interval_seconds(
+                self.scope_type,
+                self.api_daily_request_limit,
+                result["api_calls"],
+            )
+            if next_scan_seconds != self._effective_scan_seconds:
+                _LOGGER.info(
+                    "Firewalla scan interval adjusted to %s seconds based on %s/%s API calls used today",
+                    next_scan_seconds,
+                    _safe_int(result["api_calls"].get("daily_total"))
+                    if isinstance(result["api_calls"], dict)
+                    else 0,
+                    self.api_daily_request_limit,
+                )
+                self._effective_scan_seconds = next_scan_seconds
+                self.update_interval = timedelta(seconds=int(next_scan_seconds))
             self._clear_rate_limit_backoff()
             return result
         except _FirewallaRateLimitedError as err:

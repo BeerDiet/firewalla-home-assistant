@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from urllib.parse import urlparse
 
 from aiohttp import ClientError, ClientResponseError, ClientSession
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class FirewallaApiError(Exception):
@@ -36,18 +39,67 @@ class FirewallaApiCallTracker:
     """Track API call attempts by local day."""
 
     now_provider: Callable[[], datetime]
+    initial_state: dict[str, object] | None = None
+    state_writer: Callable[[dict[str, object]], None] | None = None
     _day_start: datetime | None = None
     _daily_total: int = 0
     _last_attempt_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Restore any persisted state."""
+        self._restore_state(self.initial_state)
+
+    def _parse_datetime(self, value: object) -> datetime | None:
+        """Parse an ISO timestamp from persisted state."""
+        if not isinstance(value, str):
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def _restore_state(self, state: dict[str, object] | None) -> None:
+        """Restore tracker counters from a persisted snapshot."""
+        if not isinstance(state, dict):
+            return
+
+        day_start = self._parse_datetime(state.get("day_start"))
+        last_attempt_at = self._parse_datetime(state.get("last_attempt_at"))
+        if day_start is None and last_attempt_at is not None:
+            day_start = self._current_day_start(last_attempt_at)
+        if day_start is not None:
+            self._day_start = day_start
+
+        try:
+            self._daily_total = max(int(state.get("daily_total", 0)), 0)
+        except (TypeError, ValueError):
+            self._daily_total = 0
+
+        self._last_attempt_at = last_attempt_at
+
+    def _persist_state(self) -> None:
+        """Write the current snapshot through the configured callback."""
+        if self.state_writer is None:
+            return
+        try:
+            self.state_writer(self.snapshot())
+        except Exception:  # noqa: BLE001 - persistence must not break polling
+            _LOGGER.debug("Unable to persist Firewalla API usage snapshot", exc_info=True)
 
     def _current_day_start(self, now: datetime) -> datetime:
         """Return the start of the current local day."""
         return datetime.combine(now.date(), time.min, tzinfo=now.tzinfo)
 
+    def _same_local_day(self, left: datetime, right: datetime) -> bool:
+        """Return whether two datetimes fall on the same local day."""
+        if left.tzinfo is not None and right.tzinfo is not None:
+            return left.astimezone(right.tzinfo).date() == right.date()
+        return left.date() == right.date()
+
     def _rollover(self, now: datetime) -> None:
         """Reset the counter when the local day changes."""
         day_start = self._current_day_start(now)
-        if self._day_start != day_start:
+        if self._day_start is None or not self._same_local_day(self._day_start, now):
             self._day_start = day_start
             self._daily_total = 0
 
@@ -57,6 +109,7 @@ class FirewallaApiCallTracker:
         self._rollover(now)
         self._daily_total += 1
         self._last_attempt_at = now
+        self._persist_state()
 
     def snapshot(self) -> dict[str, object]:
         """Return the current daily usage snapshot."""

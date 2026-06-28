@@ -19,6 +19,7 @@ DIAGNOSTICS_VERSION: Final = 1
 CONF_BASE_URL = "base_url"
 CONF_GROUP = "group"
 CONF_API_DAILY_REQUEST_LIMIT = "api_daily_request_limit"
+CONF_API_CALL_STATS = "api_call_stats"
 CONF_SCOPE_ID = "scope_id"
 CONF_SCOPE_TYPE = "scope_type"
 CONF_TOKEN = "token"

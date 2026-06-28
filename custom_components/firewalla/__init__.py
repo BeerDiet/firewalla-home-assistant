@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import FirewallaApiCallTracker, FirewallaApiClient
 from .const import (
+    CONF_API_CALL_STATS,
     CONF_BASE_URL,
     CONF_GROUP,
     CONF_SCAN_INTERVAL,
@@ -44,7 +45,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: FirewallaConfigEntry) ->
         Path(__file__).resolve().parent,
     )
     session = async_get_clientsession(hass)
-    request_tracker = FirewallaApiCallTracker(dt_util.now)
+    def _persist_api_call_stats(snapshot: dict[str, object]) -> None:
+        """Store the latest API-call snapshot on the config entry."""
+        current_stats = entry.data.get(CONF_API_CALL_STATS)
+        if current_stats == snapshot:
+            return
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_API_CALL_STATS: snapshot},
+        )
+
+    request_tracker = FirewallaApiCallTracker(
+        dt_util.now,
+        initial_state=entry.data.get(CONF_API_CALL_STATS),
+        state_writer=_persist_api_call_stats,
+    )
     client = FirewallaApiClient(
         session,
         entry.data[CONF_BASE_URL],
