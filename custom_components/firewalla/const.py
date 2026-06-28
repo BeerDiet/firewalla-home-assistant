@@ -45,7 +45,7 @@ API_REQUESTS_PER_REFRESH_GROUP: Final = 11
 API_REQUESTS_PER_REFRESH_BOX: Final = 5
 
 OPTIONAL_ENDPOINT_ERRORS: Final = frozenset({"http_400", "http_403", "http_404"})
-TEMPORARY_ENDPOINT_ERRORS: Final = frozenset({"cannot_connect", "http_429"})
+TEMPORARY_ENDPOINT_ERRORS: Final = frozenset({"cannot_connect"})
 
 PLATFORMS: Final = [Platform.SENSOR, Platform.SWITCH]
 

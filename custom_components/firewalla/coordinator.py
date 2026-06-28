@@ -39,19 +39,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-_RATE_LIMIT_BACKOFF_BASE = timedelta(minutes=1)
-_RATE_LIMIT_BACKOFF_MAX = timedelta(minutes=15)
-
-
-class _FirewallaRateLimitedError(Exception):
-    """Raised when the Firewalla API returns a rate-limit response."""
-
-    def __init__(self, endpoint: str) -> None:
-        """Initialize the error."""
-        self.endpoint = endpoint
-        super().__init__(endpoint)
-
-
 def _safe_int(value: object) -> int:
     """Return an int value or zero."""
     try:
@@ -638,8 +625,6 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self.traffic_window_minutes = _traffic_window_minutes_from_entry(entry)
         self.api_daily_request_limit = _api_daily_request_limit_from_entry(entry)
         self._endpoint_available: dict[str, bool] = {}
-        self._rate_limited_until: datetime | None = None
-        self._rate_limit_attempts = 0
 
         self._minimum_scan_seconds = _minimum_scan_interval_seconds(
             self.scope_type, self.api_daily_request_limit
@@ -660,29 +645,6 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
             update_interval=timedelta(seconds=int(scan_seconds)),
         )
         self._effective_scan_seconds = scan_seconds
-
-    def _rate_limit_active(self, now: datetime) -> bool:
-        """Return whether a rate-limit backoff window is currently active."""
-        return self._rate_limited_until is not None and now < self._rate_limited_until
-
-    def _activate_rate_limit_backoff(self, endpoint: str, now: datetime) -> None:
-        """Increase the rate-limit backoff window."""
-        self._rate_limit_attempts += 1
-        delay_seconds = min(
-            int(_RATE_LIMIT_BACKOFF_BASE.total_seconds()) * (2 ** (self._rate_limit_attempts - 1)),
-            int(_RATE_LIMIT_BACKOFF_MAX.total_seconds()),
-        )
-        self._rate_limited_until = now + timedelta(seconds=delay_seconds)
-        _LOGGER.warning(
-            "Firewalla endpoint %s rate limited; backing off for %s seconds",
-            endpoint,
-            delay_seconds,
-        )
-
-    def _clear_rate_limit_backoff(self) -> None:
-        """Clear any active rate-limit backoff after a successful refresh."""
-        self._rate_limited_until = None
-        self._rate_limit_attempts = 0
 
     def _update_endpoint_availability(
         self,
@@ -716,9 +678,6 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         except FirewallaApiError as err:
             error = str(err)
             self._update_endpoint_availability(endpoint, False, error)
-            if error == "http_429":
-                self._activate_rate_limit_backoff(endpoint, datetime.now(UTC))
-                raise _FirewallaRateLimitedError(endpoint) from err
             return False, None, error
         self._update_endpoint_availability(endpoint, True)
         return True, result, None
@@ -752,28 +711,6 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         }
         endpoint_errors: dict[str, str] = {}
         boxes: list[dict[str, object]] = []
-
-        if self._rate_limit_active(now):
-            remaining_seconds = max(
-                int((self._rate_limited_until - now).total_seconds()),
-                1,
-            )
-            endpoint_errors["rate_limit"] = f"backoff_active_{remaining_seconds}s"
-            _LOGGER.debug(
-                "Firewalla rate-limit backoff active for %s more seconds",
-                remaining_seconds,
-            )
-            if isinstance(self.data, dict):
-                return _merge_endpoint_errors(self.data, endpoint_errors)
-            return _empty_payload(
-                self.scope_type,
-                self.scope_id,
-                boxes,
-                capabilities,
-                endpoint_errors,
-                window_seconds,
-                self.traffic_window_minutes,
-            )
 
         try:
             now_ts = int(now.timestamp())
@@ -1047,21 +984,7 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 )
                 self._effective_scan_seconds = next_scan_seconds
                 self.update_interval = timedelta(seconds=int(next_scan_seconds))
-            self._clear_rate_limit_backoff()
             return result
-        except _FirewallaRateLimitedError as err:
-            endpoint_errors[err.endpoint] = "http_429"
-            if isinstance(self.data, dict):
-                return _merge_endpoint_errors(self.data, endpoint_errors)
-            return _empty_payload(
-                self.scope_type,
-                self.scope_id,
-                boxes,
-                capabilities,
-                endpoint_errors,
-                window_seconds,
-                self.traffic_window_minutes,
-            )
         except FirewallaApiAuthError as err:
             raise ConfigEntryAuthFailed from err
         except FirewallaApiError as err:

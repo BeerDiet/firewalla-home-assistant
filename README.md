@@ -128,8 +128,9 @@ During setup and updates, the integration records endpoint capabilities and degr
    - Your personal access token
    - A scope type: `global`, `group`, or `box`
    - An optional scope ID for `group` or `box` scopes
-   - Scan interval
+   - A daily API request limit
    - Whether SSL verification should be enabled
+5. The config and options dialogs also show the current API call tally and the current adaptive scan interval for the entry.
 
 ## Configuration reference
 
@@ -138,15 +139,20 @@ During setup and updates, the integration records endpoint capabilities and degr
 - `Personal access token`: Token used for all API requests.
 - `Scope type`: `global`, `group`, or `box`.
 - `Scope ID`: Required for `group` and `box` scopes. For box scope, this is the Firewalla `gid`.
-- `Scan interval`: Polling interval in seconds. Allowed range: `60` to `3600`.
+- `Daily API request limit`: Maximum number of Firewalla API requests the entry should budget per day. The default is `3000`, which is Firewalla's current imposed limit.
 - `Traffic window`: Rolling grouped-flow window used for recent-volume and Mbps sensors. Allowed values: `1`, `5`, `15`, or `30` minutes.
 - `Verify SSL`: Enables TLS certificate validation for the MSP endpoint.
+
+The reconfigure and options dialogs also display:
+
+- `Current API calls today`
+- `Current Scan Interval`
 
 ## Options
 
 After setup, the integration options let you change:
 
-- `Scan interval`
+- `Daily API request limit`
 - `Traffic window`
 
 You can also use the Home Assistant reconfigure flow on an existing Firewalla entry to change the base URL, token, scope type, scope ID, or SSL setting without removing and re-adding the integration.
@@ -243,7 +249,9 @@ The integration does not create:
 
 ## Data Update
 
-The integration polls Firewalla on a fixed interval configured by `Scan interval`.
+The integration polls Firewalla on an adaptive interval derived from the configured daily API request limit and the current API calls already made that day.
+
+The current scan interval is recalculated as usage changes and is shown in the integration's reconfigure and options dialogs.
 
 On each refresh it attempts to load, in order:
 
