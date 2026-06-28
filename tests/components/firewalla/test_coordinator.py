@@ -18,6 +18,7 @@ from custom_components.firewalla.const import (
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
     CONF_TRAFFIC_WINDOW_MINUTES,
+    DEFAULT_API_DAILY_REQUEST_LIMIT,
     DEFAULT_TRAFFIC_WINDOW_MINUTES,
     DOMAIN,
     SCOPE_BOX,
@@ -35,6 +36,7 @@ from custom_components.firewalla.coordinator import (
     _build_top_talkers,
     _build_top_talkers_query,
     _compute_rate_mbps,
+    _minimum_scan_interval_seconds,
     _network_key,
     _qualify_network_names,
     _safe_int,
@@ -55,6 +57,11 @@ def test_helper_builders() -> None:
     )
     assert _build_flow_query(SCOPE_BOX, "gid-1", 10) == "box.id:gid-1 ts:>10 status:ok"
     assert _build_top_talkers_query(SCOPE_GLOBAL, None, 10) == "ts:>10 status:ok"
+    assert _minimum_scan_interval_seconds(
+        SCOPE_GLOBAL, DEFAULT_API_DAILY_REQUEST_LIMIT
+    ) == 360
+    assert _minimum_scan_interval_seconds(SCOPE_BOX, DEFAULT_API_DAILY_REQUEST_LIMIT) == 180
+    assert _minimum_scan_interval_seconds(SCOPE_GLOBAL, 1500) == 660
 
     assert _scope_from_entry(SimpleNamespace(data={})) == (SCOPE_GLOBAL, None)
     assert _scope_from_entry(
@@ -474,6 +481,7 @@ async def test_coordinator_update_success_global_scope(hass) -> None:
     assert result["simple_stats"]["onlineBoxes"] == 3
     assert result["bandwidth"]["download_mbps"] == expected_download_mbps
     assert result["bandwidth"]["window_minutes"] == DEFAULT_TRAFFIC_WINDOW_MINUTES
+    assert result["api_calls"]["daily_total"] == 0
     assert result["box_bandwidth"]["gid-1"]["download_bytes"] == 1_250_000
     assert result["network_bandwidth"]["gid-1::1"]["name"] == "LAN"
     assert result["devices"][0]["id"] == "dev-1"

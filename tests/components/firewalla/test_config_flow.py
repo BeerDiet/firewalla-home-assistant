@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_NAME
+from homeassistant.util import dt as dt_util
 
 from custom_components.firewalla.api import FirewallaApiAuthError, FirewallaApiError
 from custom_components.firewalla.config_flow import (
@@ -14,12 +16,14 @@ from custom_components.firewalla.config_flow import (
     FirewallaOptionsFlow,
 )
 from custom_components.firewalla.const import (
+    CONF_API_DAILY_REQUEST_LIMIT,
     CONF_BASE_URL,
     CONF_SCAN_INTERVAL,
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
     CONF_TRAFFIC_WINDOW_MINUTES,
     CONF_VERIFY_SSL,
+    DEFAULT_API_DAILY_REQUEST_LIMIT,
     DEFAULT_TRAFFIC_WINDOW_MINUTES,
     DOMAIN,
     SCOPE_BOX,
@@ -236,9 +240,43 @@ async def test_options_flow_uses_current_scan_interval(hass) -> None:
     )
     assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"] == {
-        CONF_SCAN_INTERVAL: 300,
+        CONF_API_DAILY_REQUEST_LIMIT: DEFAULT_API_DAILY_REQUEST_LIMIT,
+        CONF_SCAN_INTERVAL: 360,
         CONF_TRAFFIC_WINDOW_MINUTES: 30,
     }
+
+
+async def test_options_flow_shows_api_usage_summary(hass) -> None:
+    """Test options flow includes the current API call tally."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla",
+        data={
+            CONF_SCOPE_TYPE: SCOPE_GLOBAL,
+            CONF_SCAN_INTERVAL: 360,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
+        },
+        options={CONF_TRAFFIC_WINDOW_MINUTES: 15},
+    )
+    entry.runtime_data = SimpleNamespace(
+        data={
+            "api_calls": {
+                "daily_total": 1331,
+                "last_attempt_at": "2026-06-28T11:24:00-04:00",
+            }
+        }
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    expected_timestamp = dt_util.as_local(
+        dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
+    ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
+    assert result["description_placeholders"]["api_calls_summary"] == (
+        f"{expected_timestamp} -- 1331/3000 API calls made"
+    )
 
 
 async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
@@ -444,6 +482,14 @@ async def test_reconfigure_flow_updates_entry(hass) -> None:
         },
         unique_id="https://old.firewalla.net|global|global",
     )
+    entry.runtime_data = SimpleNamespace(
+        data={
+            "api_calls": {
+                "daily_total": 1331,
+                "last_attempt_at": "2026-06-28T11:24:00-04:00",
+            }
+        }
+    )
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.flow.async_init(
@@ -456,6 +502,12 @@ async def test_reconfigure_flow_updates_entry(hass) -> None:
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
+    expected_timestamp = dt_util.as_local(
+        dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
+    ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
+    assert result["description_placeholders"]["api_calls_summary"] == (
+        f"{expected_timestamp} -- 1331/3000 API calls made"
+    )
 
     with patch(
         "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",
@@ -555,7 +607,8 @@ def test_build_schema_uses_defaults() -> None:
 
     assert serialized[CONF_BASE_URL] == "https://dn-knzvvk.firewalla.net"
     assert serialized[CONF_SCOPE_TYPE] == SCOPE_GLOBAL
-    assert serialized[CONF_SCAN_INTERVAL] == 60
+    assert serialized[CONF_API_DAILY_REQUEST_LIMIT] == DEFAULT_API_DAILY_REQUEST_LIMIT
+    assert serialized[CONF_SCAN_INTERVAL] == 360
     assert serialized[CONF_TRAFFIC_WINDOW_MINUTES] == DEFAULT_TRAFFIC_WINDOW_MINUTES
     assert serialized[CONF_VERIFY_SSL] is True
 

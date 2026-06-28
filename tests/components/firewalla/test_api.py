@@ -9,6 +9,7 @@ from aiohttp import ClientError, ClientResponseError
 
 from custom_components.firewalla.api import (
     FirewallaApiAuthError,
+    FirewallaApiCallTracker,
     FirewallaApiClient,
     FirewallaApiError,
     TrendPoint,
@@ -85,6 +86,55 @@ def test_client_base_url_property() -> None:
         verify_ssl=True,
     )
     assert client.base_url == "https://example.firewalla.net"
+
+
+def test_api_call_tracker_rolls_over_each_day() -> None:
+    """Test daily API call counts reset in the local timezone."""
+
+    class FixedNow:
+        def __init__(self, moment: datetime) -> None:
+            self.moment = moment
+
+        def __call__(self) -> datetime:
+            return self.moment
+
+    now = FixedNow(datetime(2026, 6, 28, 23, 59, tzinfo=UTC))
+    tracker = FirewallaApiCallTracker(now)
+
+    tracker.record_attempt()
+    tracker.record_attempt()
+
+    first_snapshot = tracker.snapshot()
+    assert first_snapshot["daily_total"] == 2
+    assert first_snapshot["day_start"] == "2026-06-28T00:00:00+00:00"
+
+    now.moment = datetime(2026, 6, 29, 0, 1, tzinfo=UTC)
+    tracker.record_attempt()
+
+    second_snapshot = tracker.snapshot()
+    assert second_snapshot["daily_total"] == 1
+    assert second_snapshot["day_start"] == "2026-06-29T00:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_api_client_counts_failed_requests() -> None:
+    """Test every request attempt is counted, even when the request fails."""
+
+    tracker = FirewallaApiCallTracker(
+        lambda: datetime(2026, 6, 28, 12, 0, tzinfo=UTC)
+    )
+    client = FirewallaApiClient(
+        MockSession(error=ClientError()),
+        "https://example.firewalla.net",
+        "token",
+        verify_ssl=True,
+        request_tracker=tracker,
+    )
+
+    with pytest.raises(FirewallaApiError, match="cannot_connect"):
+        await client.async_get_boxes()
+
+    assert tracker.snapshot()["daily_total"] == 1
 
 
 @pytest.mark.asyncio

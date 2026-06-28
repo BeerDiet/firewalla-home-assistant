@@ -157,6 +157,14 @@ SENSOR_DESCRIPTIONS: tuple[FirewallaTrendSensorDescription, ...] = (
         trend_type="upload_mbps",
         source="bandwidth",
     ),
+    FirewallaTrendSensorDescription(
+        key="api_calls_today",
+        name="API Calls Today",
+        icon="mdi:api",
+        state_class=SensorStateClass.TOTAL,
+        trend_type="daily_total",
+        source="api_calls",
+    ),
 )
 
 _SOURCE_CAPABILITY = {
@@ -214,6 +222,7 @@ _GLOBAL_SENSOR_KEYS = {
     "top_region_blocked_flows",
     "current_rules",
     "rules",
+    "api_calls_today",
 }
 
 
@@ -444,6 +453,10 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
     @property
     def available(self) -> bool:
         """Return whether the sensor is available."""
+        if self.entity_description.source == "api_calls":
+            api_calls = self.coordinator.data.get("api_calls", {})
+            return isinstance(api_calls, dict)
+
         capabilities = self.coordinator.data.get("capabilities", {})
         if not isinstance(capabilities, dict):
             return False
@@ -483,6 +496,13 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
             if self.entity_description.trend_type.endswith("_bytes"):
                 return _bytes_to_gigabytes(value)
             return value
+
+        if self.entity_description.source == "api_calls":
+            api_calls = self.coordinator.data.get("api_calls", {})
+            if not isinstance(api_calls, dict):
+                return 0
+            value = api_calls.get("daily_total")
+            return value if isinstance(value, int) else 0
 
         trends = self.coordinator.data.get("trends", {})
         if not isinstance(trends, dict):
@@ -542,6 +562,12 @@ class FirewallaTrendSensor(FirewallaBaseSensor):
                 "flow_count": bandwidth.get("flow_count"),
                 **attrs,
             }
+
+        if self.entity_description.source == "api_calls":
+            api_calls = self.coordinator.data.get("api_calls", {})
+            if not isinstance(api_calls, dict):
+                return {"source": "api_calls", **attrs}
+            return {"source": "api_calls", **api_calls, **attrs}
 
         trends = self.coordinator.data.get("trends", {})
         if not isinstance(trends, dict):

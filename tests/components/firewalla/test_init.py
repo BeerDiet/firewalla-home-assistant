@@ -50,6 +50,7 @@ async def test_setup_and_unload_entry(hass) -> None:
         assert await hass.config_entries.async_setup(entry.entry_id)
         assert entry.state is ConfigEntryState.LOADED
         assert entry.runtime_data is not None
+        assert int(entry.runtime_data.update_interval.total_seconds()) == 360
 
         assert await hass.config_entries.async_unload(entry.entry_id)
         assert entry.state is ConfigEntryState.NOT_LOADED

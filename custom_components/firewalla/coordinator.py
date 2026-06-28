@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import UTC, datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -13,11 +14,16 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import FirewallaApiAuthError, FirewallaApiClient, FirewallaApiError
 from .const import (
+    API_REQUESTS_PER_REFRESH_BOX,
+    API_REQUESTS_PER_REFRESH_GLOBAL,
+    API_REQUESTS_PER_REFRESH_GROUP,
+    CONF_API_DAILY_REQUEST_LIMIT,
     CONF_GROUP,
     CONF_SCAN_INTERVAL,
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
     CONF_TRAFFIC_WINDOW_MINUTES,
+    DEFAULT_API_DAILY_REQUEST_LIMIT,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_STATS_LIMIT,
     DEFAULT_TOP_TALKERS_LIMIT,
@@ -89,6 +95,37 @@ def _traffic_window_minutes_from_entry(entry: ConfigEntry) -> int:
         return int(value)
     except (TypeError, ValueError):
         return DEFAULT_TRAFFIC_WINDOW_MINUTES
+
+
+def _api_daily_request_limit_from_entry(entry: ConfigEntry) -> int:
+    """Resolve the configured API request limit."""
+    value = entry.options.get(
+        CONF_API_DAILY_REQUEST_LIMIT,
+        entry.data.get(CONF_API_DAILY_REQUEST_LIMIT, DEFAULT_API_DAILY_REQUEST_LIMIT),
+    )
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_API_DAILY_REQUEST_LIMIT
+
+
+def _estimated_requests_per_refresh(scope_type: str) -> int:
+    """Estimate Firewalla API requests made per coordinator refresh."""
+    if scope_type == SCOPE_BOX:
+        return API_REQUESTS_PER_REFRESH_BOX
+    if scope_type == SCOPE_GROUP:
+        return API_REQUESTS_PER_REFRESH_GROUP
+    return API_REQUESTS_PER_REFRESH_GLOBAL
+
+
+def _minimum_scan_interval_seconds(scope_type: str, daily_limit: int) -> int:
+    """Return the minimum polling interval that stays within the daily limit."""
+    requests_per_refresh = _estimated_requests_per_refresh(scope_type)
+    safe_daily_limit = max(int(daily_limit), 1)
+    minimum_seconds = math.ceil(
+        (24 * 60 * 60 * requests_per_refresh) / safe_daily_limit
+    )
+    return ((minimum_seconds + 59) // 60) * 60
 
 
 def _box_map(boxes: list[dict[str, object]]) -> dict[str, dict[str, object]]:
@@ -501,6 +538,7 @@ def _empty_payload(
         "simple_stats": {},
         "top_stats": {},
         "rules": [],
+        "api_calls": _empty_api_call_stats(),
         "device_traffic": [],
         "top_talkers": [],
         "bandwidth": {
@@ -530,6 +568,28 @@ def _merge_endpoint_errors(
     return merged
 
 
+def _empty_api_call_stats() -> dict[str, object]:
+    """Return an empty API-call usage snapshot."""
+    return {
+        "daily_total": 0,
+        "day_start": None,
+        "next_reset": None,
+        "timezone": None,
+    }
+
+
+def _snapshot_api_call_stats(client) -> dict[str, object]:
+    """Return tracked API-call usage from the client when available."""
+    snapshot = getattr(client, "api_call_stats", None)
+    if callable(snapshot):
+        result = snapshot()
+        if isinstance(result, dict):
+            return result
+    elif isinstance(snapshot, dict):
+        return snapshot
+    return _empty_api_call_stats()
+
+
 class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
     """Coordinate Firewalla polling."""
 
@@ -547,16 +607,28 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
         self.scope_type, self.scope_id = _scope_from_entry(entry)
         self.group = self.scope_id if self.scope_type == SCOPE_GROUP else None
         self.traffic_window_minutes = _traffic_window_minutes_from_entry(entry)
+        self.api_daily_request_limit = _api_daily_request_limit_from_entry(entry)
         self._endpoint_available: dict[str, bool] = {}
         self._rate_limited_until: datetime | None = None
         self._rate_limit_attempts = 0
 
-        scan_seconds = entry.options.get(
+        configured_scan_seconds = entry.options.get(
             CONF_SCAN_INTERVAL,
             entry.data.get(
                 CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds())
             ),
         )
+        self._minimum_scan_seconds = _minimum_scan_interval_seconds(
+            self.scope_type, self.api_daily_request_limit
+        )
+        scan_seconds = max(int(configured_scan_seconds), self._minimum_scan_seconds)
+        if scan_seconds > int(configured_scan_seconds):
+            _LOGGER.warning(
+                "Firewalla scan interval %s seconds is below the budget-safe minimum of %s seconds; using %s seconds",
+                configured_scan_seconds,
+                self._minimum_scan_seconds,
+                scan_seconds,
+            )
 
         super().__init__(
             hass,
@@ -564,6 +636,7 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
             name=entry.data.get(CONF_NAME, DOMAIN),
             update_interval=timedelta(seconds=int(scan_seconds)),
         )
+        self._effective_scan_seconds = scan_seconds
 
     def _rate_limit_active(self, now: datetime) -> bool:
         """Return whether a rate-limit backoff window is currently active."""
@@ -626,6 +699,16 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
             return False, None, error
         self._update_endpoint_availability(endpoint, True)
         return True, result, None
+
+    @property
+    def effective_scan_seconds(self) -> int:
+        """Return the polling interval actually used by the coordinator."""
+        return self._effective_scan_seconds
+
+    @property
+    def minimum_scan_seconds(self) -> int:
+        """Return the budget-derived minimum polling interval."""
+        return self._minimum_scan_seconds
 
     async def _async_update_data(self) -> dict[str, object]:
         """Fetch Firewalla data with graceful degradation."""
@@ -912,6 +995,7 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 "capabilities": capabilities,
                 "endpoint_errors": endpoint_errors,
                 "boxes": boxes,
+                "api_calls": _snapshot_api_call_stats(self.client),
                 "devices": devices,
                 "networks": known_networks,
                 "trends": trends,

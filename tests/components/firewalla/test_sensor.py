@@ -64,6 +64,12 @@ def _coordinator(scope_id: str | None = None) -> SimpleNamespace:
                 "network_bandwidth": True,
                 "top_talkers": True,
             },
+            "api_calls": {
+                "daily_total": 42,
+                "day_start": "2026-06-28T00:00:00-04:00",
+                "next_reset": "2026-06-29T00:00:00-04:00",
+                "timezone": "America/New_York",
+            },
             "device_traffic": [
                 {
                     "device_id": "dev-1",
@@ -210,6 +216,22 @@ def test_trend_sensor_native_value_and_attrs_for_simple_stats() -> None:
     assert sensor.native_value == 2
     assert sensor.extra_state_attributes["source"] == "simple_stats"
     assert sensor.extra_state_attributes["scope_type"] == "global"
+
+
+def test_api_calls_sensor_reports_daily_total() -> None:
+    """Test the API call sensor reports the daily request total."""
+    entry = _entry()
+    coordinator = _coordinator()
+    description = next(
+        item for item in SENSOR_DESCRIPTIONS if item.key == "api_calls_today"
+    )
+    sensor = FirewallaTrendSensor(coordinator, entry, description)
+
+    assert sensor.available is True
+    assert sensor.native_value == 42
+    assert sensor.extra_state_attributes["source"] == "api_calls"
+    assert sensor.extra_state_attributes["daily_total"] == 42
+    assert sensor.extra_state_attributes["next_reset"] == "2026-06-29T00:00:00-04:00"
 
 
 def test_trend_sensor_handles_missing_simple_stats_value() -> None:

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from urllib.parse import urlparse
 
 from aiohttp import ClientError, ClientResponseError, ClientSession
@@ -30,6 +31,50 @@ class TrendPoint:
         return datetime.fromtimestamp(self.ts, UTC)
 
 
+@dataclass(slots=True)
+class FirewallaApiCallTracker:
+    """Track API call attempts by local day."""
+
+    now_provider: Callable[[], datetime]
+    _day_start: datetime | None = None
+    _daily_total: int = 0
+    _last_attempt_at: datetime | None = None
+
+    def _current_day_start(self, now: datetime) -> datetime:
+        """Return the start of the current local day."""
+        return datetime.combine(now.date(), time.min, tzinfo=now.tzinfo)
+
+    def _rollover(self, now: datetime) -> None:
+        """Reset the counter when the local day changes."""
+        day_start = self._current_day_start(now)
+        if self._day_start != day_start:
+            self._day_start = day_start
+            self._daily_total = 0
+
+    def record_attempt(self) -> None:
+        """Count an attempted API request."""
+        now = self.now_provider()
+        self._rollover(now)
+        self._daily_total += 1
+        self._last_attempt_at = now
+
+    def snapshot(self) -> dict[str, object]:
+        """Return the current daily usage snapshot."""
+        now = self.now_provider()
+        self._rollover(now)
+        day_start = self._day_start or self._current_day_start(now)
+        next_reset = day_start + timedelta(days=1)
+        return {
+            "daily_total": self._daily_total,
+            "day_start": day_start.isoformat(),
+            "next_reset": next_reset.isoformat(),
+            "last_attempt_at": (
+                self._last_attempt_at.isoformat() if self._last_attempt_at else None
+            ),
+            "timezone": str(now.tzinfo) if now.tzinfo is not None else None,
+        }
+
+
 def normalize_base_url(raw_url: str) -> str:
     """Normalize user input into the Firewalla API base URL."""
     raw_value = raw_url.strip()
@@ -53,17 +98,30 @@ class FirewallaApiClient:
         token: str,
         *,
         verify_ssl: bool,
+        request_tracker: FirewallaApiCallTracker | None = None,
     ) -> None:
         """Initialize the client."""
         self._session = session
         self._base_url = normalize_base_url(base_url)
         self._token = token.strip()
         self._verify_ssl = verify_ssl
+        self._request_tracker = request_tracker
 
     @property
     def base_url(self) -> str:
         """Return the normalized base URL."""
         return self._base_url
+
+    def api_call_stats(self) -> dict[str, object]:
+        """Return the tracked daily API call usage."""
+        if self._request_tracker is None:
+            return {
+                "daily_total": 0,
+                "day_start": None,
+                "next_reset": None,
+                "timezone": None,
+            }
+        return self._request_tracker.snapshot()
 
     async def _async_request_json(
         self,
@@ -76,6 +134,8 @@ class FirewallaApiClient:
     ) -> object | None:
         """Issue an API request and decode JSON when expected."""
         try:
+            if self._request_tracker is not None:
+                self._request_tracker.record_attempt()
             response = await self._session.request(
                 method,
                 f"{self._base_url}{path}",

@@ -14,13 +14,15 @@
       },
       "reconfigure": {
         "title": "Reconfigure Firewalla",
-        "description": "Update the connection settings for {name}.",
+        "description": "Current usage: {api_calls_summary}. Update the connection settings for {name}.",
         "data": {
           "name": "Name",
           "base_url": "Firewalla URL",
           "token": "Personal access token",
           "scope_type": "Scope type",
           "scope_id": "Scope ID",
+          "api_daily_request_limit": "Daily API request limit",
+          "scan_interval": "Scan interval (seconds)",
           "verify_ssl": "Verify SSL certificate"
         },
         "data_description": {
@@ -29,6 +31,8 @@
           "token": "Your Firewalla personal access token.",
           "scope_type": "Choose whether to connect to the whole MSP, a group, or a single box.",
           "scope_id": "The group ID or box ID for the selected scope type.",
+          "api_daily_request_limit": "How many Firewalla API requests this entry may make per day.",
+          "scan_interval": "How often Home Assistant should refresh Firewalla data.",
           "verify_ssl": "Disable only if your Firewalla uses a self-signed certificate."
         }
       },
@@ -41,6 +45,7 @@
           "token": "Personal access token",
           "scope_type": "Scope type",
           "scope_id": "Scope ID",
+          "api_daily_request_limit": "Daily API request limit",
           "scan_interval": "Scan interval (seconds)",
           "traffic_window_minutes": "Traffic window (minutes)",
           "verify_ssl": "Verify SSL certificate"
@@ -51,6 +56,7 @@
           "token": "Your Firewalla personal access token.",
           "scope_type": "Choose whether to connect to the whole MSP, a group, or a single box.",
           "scope_id": "The group ID or box ID for the selected scope type.",
+          "api_daily_request_limit": "How many Firewalla API requests this entry may make per day.",
           "scan_interval": "How often Home Assistant should refresh Firewalla data.",
           "traffic_window_minutes": "How far back to look when building recent traffic summaries.",
           "verify_ssl": "Disable only if your Firewalla uses a self-signed certificate."
@@ -73,11 +79,14 @@
     "step": {
       "init": {
         "title": "Firewalla Options",
+        "description": "Current usage: {api_calls_summary}.",
         "data": {
+          "api_daily_request_limit": "Daily API request limit",
           "scan_interval": "Scan interval (seconds)",
           "traffic_window_minutes": "Traffic window (minutes)"
         },
         "data_description": {
+          "api_daily_request_limit": "How many Firewalla API requests this entry may make per day.",
           "scan_interval": "How often Home Assistant should refresh Firewalla data.",
           "traffic_window_minutes": "How far back to look when building recent traffic summaries."
         }

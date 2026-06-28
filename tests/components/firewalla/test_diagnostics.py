@@ -22,6 +22,12 @@ async def test_diagnostics_redacts_token(hass) -> None:
                 "scope": {"type": "global", "label": "Global MSP"},
                 "capabilities": {"bandwidth": True},
                 "endpoint_errors": {"top_stats": "http_403"},
+                "api_calls": {
+                    "daily_total": 12,
+                    "day_start": "2026-06-28T00:00:00-04:00",
+                    "next_reset": "2026-06-29T00:00:00-04:00",
+                    "timezone": "America/New_York",
+                },
                 "network_bandwidth": {"1": {"name": "LAN"}},
             },
         ),
@@ -36,7 +42,9 @@ async def test_diagnostics_redacts_token(hass) -> None:
     assert diagnostics["scope"]["type"] == "global"
     assert diagnostics["capabilities"] == {"bandwidth": True}
     assert diagnostics["endpoint_errors"] == {"top_stats": "http_403"}
+    assert diagnostics["api_calls"]["daily_total"] == 12
     assert diagnostics["data_keys"] == [
+        "api_calls",
         "capabilities",
         "endpoint_errors",
         "network_bandwidth",

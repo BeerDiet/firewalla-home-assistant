@@ -9,6 +9,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_NAME, CONF_TOKEN
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
 from .api import (
     FirewallaApiAuthError,
@@ -17,6 +18,7 @@ from .api import (
     normalize_base_url,
 )
 from .const import (
+    CONF_API_DAILY_REQUEST_LIMIT,
     CONF_BASE_URL,
     CONF_GROUP,
     CONF_SCAN_INTERVAL,
@@ -24,6 +26,7 @@ from .const import (
     CONF_SCOPE_TYPE,
     CONF_TRAFFIC_WINDOW_MINUTES,
     CONF_VERIFY_SSL,
+    DEFAULT_API_DAILY_REQUEST_LIMIT,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TRAFFIC_WINDOW_MINUTES,
     DEFAULT_VERIFY_SSL,
@@ -34,8 +37,63 @@ from .const import (
     SCOPE_TYPES,
     TRAFFIC_WINDOW_MINUTES_OPTIONS,
 )
+from .coordinator import _minimum_scan_interval_seconds
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _format_api_calls_timestamp(value: object) -> str | None:
+    """Format the last API call timestamp for display."""
+    if not isinstance(value, str):
+        return None
+    parsed = dt_util.parse_datetime(value)
+    if parsed is None:
+        return None
+    local = dt_util.as_local(parsed)
+    return local.strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace(
+        "PM", "pm"
+    )
+
+
+def _api_calls_summary_from_entry(entry) -> str:
+    """Build a concise API usage summary for a config entry."""
+    coordinator = getattr(entry, "runtime_data", None)
+    api_calls: dict[str, object] = {}
+    if coordinator is not None:
+        data = getattr(coordinator, "data", None)
+        if isinstance(data, dict):
+            raw_api_calls = data.get("api_calls", {})
+            if isinstance(raw_api_calls, dict):
+                api_calls = raw_api_calls
+
+    daily_total = api_calls.get("daily_total")
+    if not isinstance(daily_total, int):
+        daily_total = 0
+
+    timestamp = _format_api_calls_timestamp(api_calls.get("last_attempt_at"))
+    limit = getattr(getattr(entry, "runtime_data", None), "api_daily_request_limit", None)
+    if not isinstance(limit, int):
+        limit = entry.options.get(
+            CONF_API_DAILY_REQUEST_LIMIT,
+            entry.data.get(CONF_API_DAILY_REQUEST_LIMIT, DEFAULT_API_DAILY_REQUEST_LIMIT),
+        )
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = DEFAULT_API_DAILY_REQUEST_LIMIT
+    summary = f"{daily_total}/{limit} API calls made"
+    if timestamp:
+        return f"{timestamp} -- {summary}"
+    return summary
+
+
+def _api_daily_limit_from_mapping(mapping: dict) -> int:
+    """Resolve the API daily request limit from a config mapping."""
+    value = mapping.get(CONF_API_DAILY_REQUEST_LIMIT, DEFAULT_API_DAILY_REQUEST_LIMIT)
+    try:
+        return max(int(value), 1)
+    except (TypeError, ValueError):
+        return DEFAULT_API_DAILY_REQUEST_LIMIT
 
 
 class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -130,6 +188,16 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except FirewallaApiError:
                 errors["base"] = "cannot_connect"
             else:
+                normalized_input[CONF_API_DAILY_REQUEST_LIMIT] = _api_daily_limit_from_mapping(
+                    {**entry.data, **normalized_input}
+                )
+                normalized_input[CONF_SCAN_INTERVAL] = max(
+                    int(normalized_input.get(CONF_SCAN_INTERVAL, 0)),
+                    _minimum_scan_interval_seconds(
+                        normalized_input[CONF_SCOPE_TYPE],
+                        normalized_input[CONF_API_DAILY_REQUEST_LIMIT],
+                    ),
+                )
                 updated_data = {**entry.data, **normalized_input}
                 updated_data[CONF_BASE_URL] = normalized_base_url
                 if not updated_data[CONF_SCOPE_ID]:
@@ -145,7 +213,8 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=self._build_reconfigure_schema(entry.data),
             description_placeholders={
-                "base_url_example": "https://example.firewalla.net"
+                "base_url_example": "https://example.firewalla.net",
+                "api_calls_summary": _api_calls_summary_from_entry(entry),
             },
             errors=errors,
         )
@@ -166,6 +235,16 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except FirewallaApiError:
                 errors["base"] = "cannot_connect"
             else:
+                normalized_input[CONF_API_DAILY_REQUEST_LIMIT] = _api_daily_limit_from_mapping(
+                    normalized_input
+                )
+                normalized_input[CONF_SCAN_INTERVAL] = max(
+                    int(normalized_input.get(CONF_SCAN_INTERVAL, 0)),
+                    _minimum_scan_interval_seconds(
+                        normalized_input[CONF_SCOPE_TYPE],
+                        normalized_input[CONF_API_DAILY_REQUEST_LIMIT],
+                    ),
+                )
                 scope_key = (
                     normalized_input[CONF_SCOPE_ID]
                     if normalized_input[CONF_SCOPE_TYPE] != SCOPE_GLOBAL
@@ -254,6 +333,14 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         default_scope_id = user_input.get(CONF_SCOPE_ID)
         if default_scope_id is None:
             default_scope_id = user_input.get(CONF_GROUP, "")
+        default_api_limit = _api_daily_limit_from_mapping(user_input)
+        minimum_scan_seconds = _minimum_scan_interval_seconds(
+            default_scope_type, default_api_limit
+        )
+        default_scan_seconds = int(
+            user_input.get(CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds()))
+        )
+        default_scan_seconds = max(default_scan_seconds, minimum_scan_seconds)
 
         return vol.Schema(
             {
@@ -272,12 +359,15 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): vol.In(SCOPE_TYPES),
                 vol.Optional(CONF_SCOPE_ID, default=default_scope_id): str,
                 vol.Optional(
+                    CONF_API_DAILY_REQUEST_LIMIT, default=default_api_limit
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
+                vol.Optional(
                     CONF_SCAN_INTERVAL,
-                    default=user_input.get(
-                        CONF_SCAN_INTERVAL,
-                        int(DEFAULT_SCAN_INTERVAL.total_seconds()),
-                    ),
-                ): vol.All(vol.Coerce(int), vol.Range(min=60, max=3600)),
+                    default=default_scan_seconds,
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=60, max=3600),
+                ),
                 vol.Required(
                     CONF_TRAFFIC_WINDOW_MINUTES,
                     default=user_input.get(
@@ -294,6 +384,14 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _build_reconfigure_schema(self, entry_data: dict) -> vol.Schema:
         """Build the reconfigure schema."""
+        default_api_limit = _api_daily_limit_from_mapping(entry_data)
+        minimum_scan_seconds = _minimum_scan_interval_seconds(
+            entry_data.get(CONF_SCOPE_TYPE, SCOPE_GLOBAL), default_api_limit
+        )
+        default_scan_seconds = int(
+            entry_data.get(CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds()))
+        )
+        default_scan_seconds = max(default_scan_seconds, minimum_scan_seconds)
         return vol.Schema(
             {
                 vol.Optional(
@@ -314,6 +412,15 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SCOPE_ID, default=entry_data.get(CONF_SCOPE_ID, "")
                 ): str,
                 vol.Optional(
+                    CONF_API_DAILY_REQUEST_LIMIT, default=default_api_limit
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
+                vol.Optional(
+                    CONF_SCAN_INTERVAL, default=default_scan_seconds
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=60, max=3600),
+                ),
+                vol.Optional(
                     CONF_VERIFY_SSL,
                     default=entry_data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
                 ): bool,
@@ -331,8 +438,31 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         """Manage the integration options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            updated_scan = max(
+                int(user_input[CONF_SCAN_INTERVAL]),
+                _minimum_scan_interval_seconds(
+                    self._config_entry.data.get(CONF_SCOPE_TYPE, SCOPE_GLOBAL),
+                    _api_daily_limit_from_mapping(
+                        {**self._config_entry.data, **self._config_entry.options}
+                    ),
+                ),
+            )
+            updated_limit = _api_daily_limit_from_mapping(user_input)
+            return self.async_create_entry(
+                title="",
+                data={
+                    **user_input,
+                    CONF_API_DAILY_REQUEST_LIMIT: updated_limit,
+                    CONF_SCAN_INTERVAL: updated_scan,
+                },
+            )
 
+        current_limit = _api_daily_limit_from_mapping(
+            {**self._config_entry.data, **self._config_entry.options}
+        )
+        minimum_scan_seconds = _minimum_scan_interval_seconds(
+            self._config_entry.data.get(CONF_SCOPE_TYPE, SCOPE_GLOBAL), current_limit
+        )
         current_scan = self._config_entry.options.get(
             CONF_SCAN_INTERVAL,
             self._config_entry.data.get(
@@ -340,6 +470,7 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                 int(DEFAULT_SCAN_INTERVAL.total_seconds()),
             ),
         )
+        current_scan = max(int(current_scan), minimum_scan_seconds)
         current_window = self._config_entry.options.get(
             CONF_TRAFFIC_WINDOW_MINUTES,
             self._config_entry.data.get(
@@ -352,12 +483,21 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        CONF_API_DAILY_REQUEST_LIMIT, default=current_limit
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
                     vol.Optional(CONF_SCAN_INTERVAL, default=current_scan): vol.All(
-                        vol.Coerce(int), vol.Range(min=60, max=3600)
+                        vol.Coerce(int),
+                        vol.Range(min=60, max=3600),
                     ),
                     vol.Required(
                         CONF_TRAFFIC_WINDOW_MINUTES, default=current_window
                     ): vol.In(TRAFFIC_WINDOW_MINUTES_OPTIONS),
                 }
             ),
+            description_placeholders={
+                "api_calls_summary": _api_calls_summary_from_entry(
+                    self._config_entry
+                ),
+            },
         )

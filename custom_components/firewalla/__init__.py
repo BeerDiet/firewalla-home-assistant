@@ -9,11 +9,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_TOKEN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
-from .api import FirewallaApiClient
+from .api import FirewallaApiCallTracker, FirewallaApiClient
 from .const import (
     CONF_BASE_URL,
     CONF_GROUP,
+    CONF_SCAN_INTERVAL,
     CONF_SCOPE_ID,
     CONF_SCOPE_TYPE,
     CONF_VERIFY_SSL,
@@ -42,13 +44,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: FirewallaConfigEntry) ->
         Path(__file__).resolve().parent,
     )
     session = async_get_clientsession(hass)
+    request_tracker = FirewallaApiCallTracker(dt_util.now)
     client = FirewallaApiClient(
         session,
         entry.data[CONF_BASE_URL],
         entry.data[CONF_TOKEN],
         verify_ssl=entry.data[CONF_VERIFY_SSL],
+        request_tracker=request_tracker,
     )
     coordinator = FirewallaTrendsCoordinator(hass, entry, client)
+
+    configured_scan = entry.options.get(
+        CONF_SCAN_INTERVAL,
+        entry.data.get(CONF_SCAN_INTERVAL),
+    )
+    if configured_scan is None or int(configured_scan) != coordinator.effective_scan_seconds:
+        hass.config_entries.async_update_entry(
+            entry,
+            options={
+                **entry.options,
+                CONF_SCAN_INTERVAL: coordinator.effective_scan_seconds,
+            },
+        )
 
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
