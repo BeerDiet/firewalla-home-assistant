@@ -15,10 +15,17 @@
       "reconfigure": {
         "title": "Reconfigure Firewalla",
         "description": "",
+        "sections": {
+          "current_usage": {
+            "name": "MSP API Call Usage Metrics",
+            "data": {
+              "current_api_calls_today": "Current API Calls Today",
+              "api_daily_request_limit": "Daily API Request Limit",
+              "current_scan_interval": "Current Scan Interval"
+            }
+          }
+        },
         "data": {
-          "current_api_calls_today": "Current API Calls Today",
-          "api_daily_request_limit": "Daily API Usage Limit",
-          "current_scan_interval": "Current Scan Interval",
           "name": "Name",
           "base_url": "Firewalla URL",
           "token": "Personal access token",
@@ -27,7 +34,6 @@
           "verify_ssl": "Verify SSL certificate"
         },
         "data_description": {
-          "api_daily_request_limit": "Adaptive based on current usage, previous internal was {previous_scan_interval_seconds}s.",
           "name": "A friendly name for this Firewalla connection.",
           "base_url": "The Firewalla MSP base URL, for example {base_url_example}.",
           "token": "Your Firewalla personal access token.",
@@ -78,14 +84,20 @@
       "init": {
         "title": "Firewalla Options",
         "description": "",
+        "sections": {
+          "current_usage": {
+            "name": "MSP API Call Usage Metrics",
+            "data": {
+              "current_api_calls_today": "Current API Calls Today",
+              "api_daily_request_limit": "Daily API Request Limit",
+              "current_scan_interval": "Current Scan Interval"
+            }
+          }
+        },
         "data": {
-          "current_api_calls_today": "Current API Calls Today",
-          "api_daily_request_limit": "Daily API request limit",
-          "current_scan_interval": "Current Scan Interval",
           "traffic_window_minutes": "Traffic window (minutes)"
         },
         "data_description": {
-          "api_daily_request_limit": "Adaptive based on current usage, previous internal was {previous_scan_interval_seconds}s.",
           "traffic_window_minutes": "How far back to look when building recent traffic summaries."
         }
       }

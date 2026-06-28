@@ -10,6 +10,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME, CONF_TOKEN
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import selector
 from homeassistant.util import dt as dt_util
@@ -160,9 +161,50 @@ def _current_scan_interval_display_from_entry(entry) -> str:
     return f"{_current_scan_interval_seconds_from_entry(entry)}s"
 
 
-def _display_selector(label: str, value: str | int | bool) -> object:
-    """Build a constant selector for a read-only display row."""
-    return selector({"constant": {"label": label, "value": value}})
+def _usage_section(entry) -> section:
+    """Build the current-usage section for config forms."""
+    api_calls_today = _current_api_calls_today_from_entry(entry)
+    scan_interval_seconds = _current_scan_interval_seconds_from_entry(entry)
+    current_limit = _api_daily_limit_from_mapping(
+        {**getattr(entry, "data", {}), **getattr(entry, "options", {})}
+    )
+    return section(
+        vol.Schema(
+            {
+                vol.Optional(
+                    "current_api_calls_today",
+                    default=api_calls_today,
+                ): selector(
+                    {
+                        "number": {
+                            "min": int(api_calls_today),
+                            "max": int(api_calls_today),
+                            "mode": "box",
+                            "step": 1,
+                        }
+                    }
+                ),
+                vol.Optional(
+                    CONF_API_DAILY_REQUEST_LIMIT, default=current_limit
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
+                vol.Optional(
+                    "current_scan_interval",
+                    default=scan_interval_seconds,
+                ): selector(
+                    {
+                        "number": {
+                            "min": scan_interval_seconds,
+                            "max": scan_interval_seconds,
+                            "mode": "box",
+                            "step": 1,
+                            "unit_of_measurement": "s",
+                        }
+                    }
+                ),
+            }
+        ),
+        {"collapsed": False},
+    )
 
 
 def _api_daily_limit_from_mapping(mapping: dict) -> int:
@@ -284,6 +326,9 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 normalized_base_url = normalize_base_url(user_input[CONF_BASE_URL])
                 normalized_input = self._normalize_user_input({**entry.data, **user_input})
+                usage_input = normalized_input.pop("current_usage", {})
+                if isinstance(usage_input, dict):
+                    normalized_input.update(usage_input)
                 normalized_input.pop("current_api_calls_today", None)
                 normalized_input.pop("current_scan_interval", None)
                 await self._validate_input(normalized_base_url, normalized_input)
@@ -488,26 +533,9 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _build_reconfigure_schema(self, entry) -> vol.Schema:
         """Build the reconfigure schema."""
         entry_data = entry.data
-        default_api_limit = _api_daily_limit_from_mapping(entry_data)
         return vol.Schema(
             {
-                vol.Optional(
-                    "current_api_calls_today",
-                    default=_current_api_calls_today_from_entry(entry),
-                ): _display_selector(
-                    "Current API Calls Today",
-                    _current_api_calls_today_from_entry(entry),
-                ),
-                vol.Optional(
-                    CONF_API_DAILY_REQUEST_LIMIT, default=default_api_limit
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
-                vol.Optional(
-                    "current_scan_interval",
-                    default=_current_scan_interval_display_from_entry(entry),
-                ): _display_selector(
-                    "Current Scan Interval",
-                    _current_scan_interval_display_from_entry(entry),
-                ),
+                vol.Optional("current_usage", default={}): _usage_section(entry),
                 vol.Optional(
                     CONF_NAME, default=entry_data.get(CONF_NAME, "Firewalla")
                 ): str,
@@ -544,6 +572,9 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
         """Manage the integration options."""
         if user_input is not None:
             user_input = dict(user_input)
+            usage_input = user_input.pop("current_usage", {})
+            if isinstance(usage_input, dict):
+                user_input.update(usage_input)
             user_input.pop("current_api_calls_today", None)
             user_input.pop("current_scan_interval", None)
             updated_scan = _effective_scan_interval_from_mapping(
@@ -566,9 +597,6 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                 },
             )
 
-        current_limit = _api_daily_limit_from_mapping(
-            {**self._config_entry.data, **self._config_entry.options}
-        )
         current_window = self._config_entry.options.get(
             CONF_TRAFFIC_WINDOW_MINUTES,
             self._config_entry.data.get(
@@ -581,28 +609,8 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
-                        "current_api_calls_today",
-                        default=_current_api_calls_today_from_entry(
-                            self._config_entry
-                        ),
-                    ): _display_selector(
-                        "Current API Calls Today",
-                        _current_api_calls_today_from_entry(self._config_entry),
-                    ),
-                    vol.Optional(
-                        CONF_API_DAILY_REQUEST_LIMIT, default=current_limit
-                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
-                    vol.Optional(
-                        "current_scan_interval",
-                        default=_current_scan_interval_display_from_entry(
-                            self._config_entry
-                        ),
-                    ): _display_selector(
-                        "Current Scan Interval",
-                        _current_scan_interval_display_from_entry(
-                            self._config_entry
-                        ),
+                    vol.Optional("current_usage", default={}): _usage_section(
+                        self._config_entry
                     ),
                     vol.Required(
                         CONF_TRAFFIC_WINDOW_MINUTES, default=current_window
