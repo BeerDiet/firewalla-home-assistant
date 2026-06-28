@@ -374,7 +374,9 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_TRAFFIC_WINDOW_MINUTES,
                         DEFAULT_TRAFFIC_WINDOW_MINUTES,
                     ),
-                ): vol.In(TRAFFIC_WINDOW_MINUTES_OPTIONS),
+                ): vol.All(
+                    vol.Coerce(int), vol.In(TRAFFIC_WINDOW_MINUTES_OPTIONS)
+                ),
                 vol.Optional(
                     CONF_VERIFY_SSL,
                     default=user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
@@ -492,7 +494,9 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                     ),
                     vol.Required(
                         CONF_TRAFFIC_WINDOW_MINUTES, default=current_window
-                    ): vol.In(TRAFFIC_WINDOW_MINUTES_OPTIONS),
+                    ): vol.All(
+                        vol.Coerce(int), vol.In(TRAFFIC_WINDOW_MINUTES_OPTIONS)
+                    ),
                 }
             ),
             description_placeholders={

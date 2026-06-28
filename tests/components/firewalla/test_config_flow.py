@@ -246,6 +246,36 @@ async def test_options_flow_uses_current_scan_interval(hass) -> None:
     }
 
 
+async def test_options_flow_accepts_string_traffic_window(hass) -> None:
+    """Test traffic window radio values are coerced safely."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Firewalla",
+        data={
+            CONF_SCOPE_TYPE: SCOPE_GLOBAL,
+            CONF_SCAN_INTERVAL: 360,
+            CONF_TRAFFIC_WINDOW_MINUTES: 15,
+        },
+        options={},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_API_DAILY_REQUEST_LIMIT: 3000,
+            CONF_SCAN_INTERVAL: 360,
+            CONF_TRAFFIC_WINDOW_MINUTES: "30",
+        },
+    )
+
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_TRAFFIC_WINDOW_MINUTES] == 30
+
+
 async def test_options_flow_shows_api_usage_summary(hass) -> None:
     """Test options flow includes the current API call tally."""
     entry = MockConfigEntry(
