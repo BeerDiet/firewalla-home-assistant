@@ -154,7 +154,7 @@ def _adaptive_scan_interval_seconds(
             remaining_seconds = max(int((reset_at - current_now).total_seconds()), 1)
             scaled_seconds = min(scaled_seconds, remaining_seconds)
 
-    return max(((scaled_seconds + 59) // 60) * 60, baseline_seconds)
+    return max(scaled_seconds, baseline_seconds)
 
 
 def _box_map(boxes: list[dict[str, object]]) -> dict[str, dict[str, object]]:

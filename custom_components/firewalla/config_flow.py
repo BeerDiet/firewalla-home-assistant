@@ -57,6 +57,14 @@ def _format_api_calls_timestamp(value: object) -> str | None:
     )
 
 
+def _format_api_calls_as_of(value: object) -> str | None:
+    """Format the API usage timestamp as a short human-readable note."""
+    timestamp = _format_api_calls_timestamp(value)
+    if timestamp is None:
+        return None
+    return f"as of {timestamp}"
+
+
 def _parse_api_calls_timestamp(value: object) -> datetime | None:
     """Parse an API-call timestamp if one is available."""
     if not isinstance(value, str):
@@ -122,6 +130,21 @@ def _api_calls_summary_from_entry(entry) -> str:
     return summary
 
 
+def _api_calls_display_from_entry(entry) -> dict[str, str]:
+    """Build API usage values for flow descriptions."""
+    api_calls = _current_api_calls_snapshot(entry)
+    daily_total = api_calls.get("daily_total")
+    if not isinstance(daily_total, int):
+        daily_total = 0
+    as_of = _format_api_calls_as_of(api_calls.get("last_attempt_at"))
+    if as_of is None:
+        as_of = ""
+    return {
+        "current_api_calls": str(daily_total),
+        "api_calls_as_of": as_of,
+    }
+
+
 def _api_daily_limit_from_mapping(mapping: dict) -> int:
     """Resolve the API daily request limit from a config mapping."""
     value = mapping.get(CONF_API_DAILY_REQUEST_LIMIT, DEFAULT_API_DAILY_REQUEST_LIMIT)
@@ -145,7 +168,7 @@ def _effective_scan_interval_from_mapping(mapping: dict) -> int:
     baseline_seconds = _minimum_scan_interval_seconds(scope_type, daily_limit)
     remaining_requests = max(daily_limit - daily_total, 1)
     adaptive_seconds = math.ceil(baseline_seconds * daily_limit / remaining_requests)
-    return max(((adaptive_seconds + 59) // 60) * 60, baseline_seconds)
+    return max(adaptive_seconds, baseline_seconds)
 
 
 def _current_scan_interval_seconds_from_entry(entry) -> int:
@@ -170,6 +193,13 @@ def _current_scan_interval_seconds_from_entry(entry) -> int:
             CONF_API_CALL_STATS: api_calls,
         }
     )
+
+
+def _previous_scan_interval_seconds_from_entry(entry) -> int:
+    """Return the baseline scan interval before adaptive adjustments."""
+    scope_type = str(entry.data.get(CONF_SCOPE_TYPE, SCOPE_GLOBAL))
+    daily_limit = _api_daily_limit_from_mapping({**entry.data, **entry.options})
+    return _minimum_scan_interval_seconds(scope_type, daily_limit)
 
 
 class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -267,9 +297,13 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 normalized_input[CONF_API_DAILY_REQUEST_LIMIT] = _api_daily_limit_from_mapping(
                     {**entry.data, **normalized_input}
                 )
-                normalized_input[CONF_SCAN_INTERVAL] = _minimum_scan_interval_seconds(
-                    normalized_input[CONF_SCOPE_TYPE],
-                    normalized_input[CONF_API_DAILY_REQUEST_LIMIT],
+                normalized_input[CONF_SCAN_INTERVAL] = _effective_scan_interval_from_mapping(
+                    {
+                        **entry.data,
+                        **entry.options,
+                        **normalized_input,
+                        CONF_API_CALL_STATS: _current_api_calls_snapshot(entry),
+                    }
                 )
                 updated_data = {**entry.data, **normalized_input}
                 updated_data[CONF_BASE_URL] = normalized_base_url
@@ -287,9 +321,12 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=self._build_reconfigure_schema(entry.data),
             description_placeholders={
                 "base_url_example": "https://example.firewalla.net",
-                "api_calls_summary": _api_calls_summary_from_entry(entry),
+                **_api_calls_display_from_entry(entry),
                 "current_scan_interval_seconds": str(
                     _current_scan_interval_seconds_from_entry(entry)
+                ),
+                "previous_scan_interval_seconds": str(
+                    _previous_scan_interval_seconds_from_entry(entry)
                 ),
                 "name": entry.title,
             },
@@ -487,15 +524,15 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         """Manage the integration options."""
         if user_input is not None:
-            updated_scan = _minimum_scan_interval_seconds(
-                self._config_entry.data.get(CONF_SCOPE_TYPE, SCOPE_GLOBAL),
-                _api_daily_limit_from_mapping(
-                    {
-                        **self._config_entry.data,
-                        **self._config_entry.options,
-                        **user_input,
-                    }
-                ),
+            updated_scan = _effective_scan_interval_from_mapping(
+                {
+                    **self._config_entry.data,
+                    **self._config_entry.options,
+                    **user_input,
+                    CONF_API_CALL_STATS: _current_api_calls_snapshot(
+                        self._config_entry
+                    ),
+                }
             )
             updated_limit = _api_daily_limit_from_mapping(user_input)
             return self.async_create_entry(
@@ -533,8 +570,12 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                 }
             ),
             description_placeholders={
-                "api_calls_summary": _api_calls_summary_from_entry(
-                    self._config_entry
+                **_api_calls_display_from_entry(self._config_entry),
+                "current_scan_interval_seconds": str(
+                    _current_scan_interval_seconds_from_entry(self._config_entry)
+                ),
+                "previous_scan_interval_seconds": str(
+                    _previous_scan_interval_seconds_from_entry(self._config_entry)
                 ),
             },
         )

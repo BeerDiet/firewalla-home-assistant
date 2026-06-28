@@ -103,7 +103,7 @@ async def test_setup_entry_restores_persisted_api_usage(hass) -> None:
         assert (
             entry.runtime_data.client.api_call_stats()["daily_total"] == 1331
         )
-        assert int(entry.runtime_data.update_interval.total_seconds()) == 660
+        assert int(entry.runtime_data.update_interval.total_seconds()) == 648
 
 
 async def test_async_setup_returns_true(hass) -> None:

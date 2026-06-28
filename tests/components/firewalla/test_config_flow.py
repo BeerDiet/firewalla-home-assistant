@@ -287,7 +287,7 @@ async def test_options_flow_shows_api_usage_summary(hass) -> None:
         options={CONF_TRAFFIC_WINDOW_MINUTES: 15},
     )
     entry.runtime_data = SimpleNamespace(
-        update_interval=timedelta(seconds=660),
+        update_interval=timedelta(seconds=648),
         data={
             "api_calls": {
                 "daily_total": 1331,
@@ -303,9 +303,12 @@ async def test_options_flow_shows_api_usage_summary(hass) -> None:
     expected_timestamp = dt_util.as_local(
         dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
     ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
-    assert result["description_placeholders"]["api_calls_summary"] == (
-        f"{expected_timestamp} -- 1331/3000 API calls made"
+    assert result["description_placeholders"]["current_api_calls"] == "1331"
+    assert result["description_placeholders"]["api_calls_as_of"] == (
+        f"as of {expected_timestamp}"
     )
+    assert result["description_placeholders"]["current_scan_interval_seconds"] == "648"
+    assert result["description_placeholders"]["previous_scan_interval_seconds"] == "360"
 
 
 async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None:
@@ -332,9 +335,12 @@ async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None
     expected_timestamp = dt_util.as_local(
         dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
     ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
-    assert result["description_placeholders"]["api_calls_summary"] == (
-        f"{expected_timestamp} -- 1331/3000 API calls made"
+    assert result["description_placeholders"]["current_api_calls"] == "1331"
+    assert result["description_placeholders"]["api_calls_as_of"] == (
+        f"as of {expected_timestamp}"
     )
+    assert result["description_placeholders"]["current_scan_interval_seconds"] == "648"
+    assert result["description_placeholders"]["previous_scan_interval_seconds"] == "360"
 
 
 async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
@@ -562,10 +568,12 @@ async def test_reconfigure_flow_updates_entry(hass) -> None:
     expected_timestamp = dt_util.as_local(
         dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
     ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
-    assert result["description_placeholders"]["api_calls_summary"] == (
-        f"{expected_timestamp} -- 1331/3000 API calls made"
+    assert result["description_placeholders"]["current_api_calls"] == "1331"
+    assert result["description_placeholders"]["api_calls_as_of"] == (
+        f"as of {expected_timestamp}"
     )
-    assert result["description_placeholders"]["current_scan_interval_seconds"] == "660"
+    assert result["description_placeholders"]["current_scan_interval_seconds"] == "648"
+    assert result["description_placeholders"]["previous_scan_interval_seconds"] == "360"
 
     with patch(
         "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",
