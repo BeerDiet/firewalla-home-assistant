@@ -160,6 +160,11 @@ def _current_scan_interval_display_from_entry(entry) -> str:
     return f"{_current_scan_interval_seconds_from_entry(entry)}s"
 
 
+def _display_selector(label: str, value: str | int | bool) -> object:
+    """Build a constant selector for a read-only display row."""
+    return selector({"constant": {"label": label, "value": value}})
+
+
 def _api_daily_limit_from_mapping(mapping: dict) -> int:
     """Resolve the API daily request limit from a config mapping."""
     value = mapping.get(CONF_API_DAILY_REQUEST_LIMIT, DEFAULT_API_DAILY_REQUEST_LIMIT)
@@ -208,13 +213,6 @@ def _current_scan_interval_seconds_from_entry(entry) -> int:
             CONF_API_CALL_STATS: api_calls,
         }
     )
-
-
-def _previous_scan_interval_seconds_from_entry(entry) -> int:
-    """Return the baseline scan interval before adaptive adjustments."""
-    scope_type = str(entry.data.get(CONF_SCOPE_TYPE, SCOPE_GLOBAL))
-    daily_limit = _api_daily_limit_from_mapping({**entry.data, **entry.options})
-    return _minimum_scan_interval_seconds(scope_type, daily_limit)
 
 
 class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -336,12 +334,6 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=self._build_reconfigure_schema(entry),
-            description_placeholders={
-                "base_url_example": "https://example.firewalla.net",
-                "previous_scan_interval_seconds": str(
-                    _previous_scan_interval_seconds_from_entry(entry)
-                ),
-            },
             errors=errors,
         )
 
@@ -502,14 +494,20 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     "current_api_calls_today",
                     default=_current_api_calls_today_from_entry(entry),
-                ): selector({"text": {"read_only": True}}),
+                ): _display_selector(
+                    "Current API Calls Today",
+                    _current_api_calls_today_from_entry(entry),
+                ),
                 vol.Optional(
                     CONF_API_DAILY_REQUEST_LIMIT, default=default_api_limit
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
                 vol.Optional(
                     "current_scan_interval",
                     default=_current_scan_interval_display_from_entry(entry),
-                ): selector({"text": {"read_only": True}}),
+                ): _display_selector(
+                    "Current Scan Interval",
+                    _current_scan_interval_display_from_entry(entry),
+                ),
                 vol.Optional(
                     CONF_NAME, default=entry_data.get(CONF_NAME, "Firewalla")
                 ): str,
@@ -588,7 +586,10 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                         default=_current_api_calls_today_from_entry(
                             self._config_entry
                         ),
-                    ): selector({"text": {"read_only": True}}),
+                    ): _display_selector(
+                        "Current API Calls Today",
+                        _current_api_calls_today_from_entry(self._config_entry),
+                    ),
                     vol.Optional(
                         CONF_API_DAILY_REQUEST_LIMIT, default=current_limit
                     ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
@@ -597,7 +598,12 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                         default=_current_scan_interval_display_from_entry(
                             self._config_entry
                         ),
-                    ): selector({"text": {"read_only": True}}),
+                    ): _display_selector(
+                        "Current Scan Interval",
+                        _current_scan_interval_display_from_entry(
+                            self._config_entry
+                        ),
+                    ),
                     vol.Required(
                         CONF_TRAFFIC_WINDOW_MINUTES, default=current_window
                     ): vol.All(
@@ -605,9 +611,4 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                     ),
                 }
             ),
-            description_placeholders={
-                "previous_scan_interval_seconds": str(
-                    _previous_scan_interval_seconds_from_entry(self._config_entry)
-                ),
-            },
         )

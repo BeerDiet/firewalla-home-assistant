@@ -303,6 +303,23 @@ async def test_options_flow_shows_api_usage_summary(hass) -> None:
     assert serialized["current_api_calls_today"] == "1331"
     assert serialized["api_daily_request_limit"] == 3000
     assert serialized["current_scan_interval"] == "648s"
+    schema = result["data_schema"].schema
+    assert schema["current_api_calls_today"].serialize() == {
+        "selector": {
+            "constant": {
+                "label": "Current API Calls Today",
+                "value": "1331",
+            }
+        }
+    }
+    assert schema["current_scan_interval"].serialize() == {
+        "selector": {
+            "constant": {
+                "label": "Current Scan Interval",
+                "value": "648s",
+            }
+        }
+    }
 
 
 async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None:
@@ -330,6 +347,23 @@ async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None
     assert serialized["current_api_calls_today"] == "1331"
     assert serialized["api_daily_request_limit"] == 3000
     assert serialized["current_scan_interval"] == "648s"
+    schema = result["data_schema"].schema
+    assert schema["current_api_calls_today"].serialize() == {
+        "selector": {
+            "constant": {
+                "label": "Current API Calls Today",
+                "value": "1331",
+            }
+        }
+    }
+    assert schema["current_scan_interval"].serialize() == {
+        "selector": {
+            "constant": {
+                "label": "Current Scan Interval",
+                "value": "648s",
+            }
+        }
+    }
 
 
 async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:

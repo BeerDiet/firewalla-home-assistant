@@ -16,7 +16,7 @@
         "title": "Reconfigure Firewalla",
         "description": "",
         "data": {
-          "current_api_calls_today": "Current API calls today",
+          "current_api_calls_today": "Current API Calls Today",
           "api_daily_request_limit": "Daily API Usage Limit",
           "current_scan_interval": "Current Scan Interval",
           "name": "Name",
@@ -79,7 +79,7 @@
         "title": "Firewalla Options",
         "description": "",
         "data": {
-          "current_api_calls_today": "Current API calls today",
+          "current_api_calls_today": "Current API Calls Today",
           "api_daily_request_limit": "Daily API request limit",
           "current_scan_interval": "Current Scan Interval",
           "traffic_window_minutes": "Traffic window (minutes)"
