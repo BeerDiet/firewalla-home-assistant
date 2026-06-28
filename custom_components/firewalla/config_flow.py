@@ -215,6 +215,7 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "base_url_example": "https://example.firewalla.net",
                 "api_calls_summary": _api_calls_summary_from_entry(entry),
+                "name": entry.title,
             },
             errors=errors,
         )

@@ -532,6 +532,7 @@ async def test_reconfigure_flow_updates_entry(hass) -> None:
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
+    assert result["description_placeholders"]["name"] == "Firewalla"
     expected_timestamp = dt_util.as_local(
         dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
     ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
