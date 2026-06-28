@@ -22,10 +22,11 @@ This integration connects to a Firewalla MSP endpoint with a personal access tok
 - Per-box top-talker list sensors with ranked download and upload attributes
 - Per-network download/upload traffic under each box device
 - Rule-backed internet block switches for devices and local networks
+- Config-entry API usage metrics, including the current daily call tally, the current limit, and the active adaptive scan interval
 
 ## Sensors created
 
-The integration creates sensors in two places when `global` or `group` scope is used:
+The integration creates sensors in two places when `global` or `group` scope is used. The config and options dialogs also show the current API call tally, the daily request limit, and the active adaptive scan interval for the entry:
 
 Main integration device:
 
@@ -36,6 +37,9 @@ Main integration device:
 - `Offline Boxes`
 - `Current Alarms`
 - `Current Rules`
+- `Current API Calls Today`
+- `Daily API Usage Limit`
+- `Current Scan Interval`
 - `Top Box Blocked Flows`
 - `Top Box Security Alarms`
 - `Top Region Blocked Flows`
@@ -130,7 +134,7 @@ During setup and updates, the integration records endpoint capabilities and degr
    - An optional scope ID for `group` or `box` scopes
    - A daily API request limit
    - Whether SSL verification should be enabled
-5. The config and options dialogs also show the current API call tally and the current adaptive scan interval for the entry.
+5. The config and options dialogs also show the current API call tally, the daily request limit, and the current adaptive scan interval for the entry.
 
 ## Configuration reference
 
@@ -162,9 +166,10 @@ You can also use the Home Assistant reconfigure flow on an existing Firewalla en
 The integration currently exposes these Home Assistant features:
 
 - Box-level sensors for blocked flows, alarms, current alarms, and top talkers
-- Main integration sensors for blocked flows, alarms, rules, box counts, recent traffic, and top-region statistics
+- Main integration sensors for blocked flows, alarms, rules, box counts, recent traffic, top-region statistics, current API calls, the daily API usage limit, and the adaptive scan interval
 - Per-box network throughput sensors for download volume, upload volume, download Mbps, and upload Mbps
 - Internet-block switches for client devices and local networks returned by the API
+- Config-entry API usage metrics for the current daily call tally, the daily request limit, and the adaptive scan interval
 - Diagnostics that include scope, capabilities, endpoint errors, and redacted runtime data
 - Reauthentication and reconfiguration flows for updating the connection without removing the entry
 
@@ -220,7 +225,7 @@ Common day-to-day uses for this integration:
 
 The following entities are created when the API exposes the required data:
 
-- Main integration sensors: blocked flows, alarms, rules, box counts, top-region stats, and recent traffic
+- Main integration sensors: blocked flows, alarms, rules, box counts, top-region stats, recent traffic, current API calls, daily API usage limit, and adaptive scan interval
 - Per-box sensors: blocked flows, alarms, current alarms, and top talkers
 - Per-box network sensors: download volume, upload volume, download Mbps, and upload Mbps
 - Per-box switches: device internet block and network internet block
