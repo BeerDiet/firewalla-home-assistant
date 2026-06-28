@@ -303,12 +303,12 @@ async def test_options_flow_shows_api_usage_summary(hass) -> None:
     expected_timestamp = dt_util.as_local(
         dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
     ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
-    assert result["description_placeholders"]["current_api_calls"] == "1331"
-    assert result["description_placeholders"]["api_calls_as_of"] == (
+    serialized = result["data_schema"]({})
+    assert serialized["current_usage_display"] == (
+        "Current scan interval: 648s\n"
+        "Current API calls: 1331\n"
         f"as of {expected_timestamp}"
     )
-    assert result["description_placeholders"]["current_scan_interval_seconds"] == "648"
-    assert result["description_placeholders"]["previous_scan_interval_seconds"] == "360"
 
 
 async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None:
@@ -335,12 +335,12 @@ async def test_options_flow_uses_persisted_api_usage_after_restart(hass) -> None
     expected_timestamp = dt_util.as_local(
         dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
     ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
-    assert result["description_placeholders"]["current_api_calls"] == "1331"
-    assert result["description_placeholders"]["api_calls_as_of"] == (
+    serialized = result["data_schema"]({})
+    assert serialized["current_usage_display"] == (
+        "Current scan interval: 648s\n"
+        "Current API calls: 1331\n"
         f"as of {expected_timestamp}"
     )
-    assert result["description_placeholders"]["current_scan_interval_seconds"] == "648"
-    assert result["description_placeholders"]["previous_scan_interval_seconds"] == "360"
 
 
 async def test_user_flow_aborts_for_duplicate_configured_instance(hass) -> None:
@@ -564,16 +564,15 @@ async def test_reconfigure_flow_updates_entry(hass) -> None:
 
     assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
-    assert result["description_placeholders"]["name"] == "Firewalla"
     expected_timestamp = dt_util.as_local(
         dt_util.parse_datetime("2026-06-28T11:24:00-04:00")
     ).strftime("%m/%d/%Y %I:%M%p").replace("AM", "am").replace("PM", "pm")
-    assert result["description_placeholders"]["current_api_calls"] == "1331"
-    assert result["description_placeholders"]["api_calls_as_of"] == (
+    serialized = result["data_schema"]({})
+    assert serialized["current_usage_display"] == (
+        "Current scan interval: 648s\n"
+        "Current API calls: 1331\n"
         f"as of {expected_timestamp}"
     )
-    assert result["description_placeholders"]["current_scan_interval_seconds"] == "648"
-    assert result["description_placeholders"]["previous_scan_interval_seconds"] == "360"
 
     with patch(
         "custom_components.firewalla.config_flow.FirewallaConfigFlow._validate_input",

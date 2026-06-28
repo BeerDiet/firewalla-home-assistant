@@ -14,8 +14,9 @@
       },
       "reconfigure": {
         "title": "Reconfigure Firewalla",
-        "description": "Current scan interval: {current_scan_interval_seconds} seconds.\nCurrent API calls: {current_api_calls}.\n{api_calls_as_of}\nUpdate the connection settings for {name}.",
+        "description": "",
         "data": {
+          "current_usage_display": "",
           "name": "Name",
           "base_url": "Firewalla URL",
           "token": "Personal access token",
@@ -30,7 +31,7 @@
           "token": "Your Firewalla personal access token.",
           "scope_type": "Choose whether to connect to the whole MSP, a group, or a single box.",
           "scope_id": "The group ID or box ID for the selected scope type.",
-          "api_daily_request_limit": "Adaptive based on current usage, previous internal was {previous_scan_interval_seconds} seconds.",
+          "api_daily_request_limit": "Adaptive based on current usage, previous internal was {previous_scan_interval_seconds}s.",
           "verify_ssl": "Disable only if your Firewalla uses a self-signed certificate."
         }
       },
@@ -75,13 +76,14 @@
     "step": {
       "init": {
         "title": "Firewalla Options",
-        "description": "Current scan interval: {current_scan_interval_seconds} seconds.\nCurrent API calls: {current_api_calls}.\n{api_calls_as_of}",
+        "description": "",
         "data": {
+          "current_usage_display": "",
           "api_daily_request_limit": "Daily API request limit",
           "traffic_window_minutes": "Traffic window (minutes)"
         },
         "data_description": {
-          "api_daily_request_limit": "Adaptive based on current usage, previous internal was {previous_scan_interval_seconds} seconds.",
+          "api_daily_request_limit": "Adaptive based on current usage, previous internal was {previous_scan_interval_seconds}s.",
           "traffic_window_minutes": "How far back to look when building recent traffic summaries."
         }
       }

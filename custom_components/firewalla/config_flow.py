@@ -11,6 +11,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_NAME, CONF_TOKEN
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import selector
 from homeassistant.util import dt as dt_util
 
 from .api import (
@@ -42,6 +43,7 @@ from .const import (
 from .coordinator import _minimum_scan_interval_seconds
 
 _LOGGER = logging.getLogger(__name__)
+_CONF_CURRENT_USAGE_DISPLAY = "current_usage_display"
 
 
 def _format_api_calls_timestamp(value: object) -> str | None:
@@ -143,6 +145,26 @@ def _api_calls_display_from_entry(entry) -> dict[str, str]:
         "current_api_calls": str(daily_total),
         "api_calls_as_of": as_of,
     }
+
+
+def _current_usage_display_from_entry(entry) -> str:
+    """Build the read-only usage summary shown in the form."""
+    api_calls = _current_api_calls_snapshot(entry)
+
+    daily_total = api_calls.get("daily_total")
+    if not isinstance(daily_total, int):
+        daily_total = 0
+
+    timestamp = _format_api_calls_timestamp(api_calls.get("last_attempt_at"))
+    scan_interval_seconds = _current_scan_interval_seconds_from_entry(entry)
+
+    lines = [
+        f"Current scan interval: {scan_interval_seconds}s",
+        f"Current API calls: {daily_total}",
+    ]
+    if timestamp:
+        lines.append(f"as of {timestamp}")
+    return "\n".join(lines)
 
 
 def _api_daily_limit_from_mapping(mapping: dict) -> int:
@@ -271,6 +293,7 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 normalized_base_url = normalize_base_url(user_input[CONF_BASE_URL])
                 normalized_input = self._normalize_user_input({**entry.data, **user_input})
+                normalized_input.pop(_CONF_CURRENT_USAGE_DISPLAY, None)
                 await self._validate_input(normalized_base_url, normalized_input)
                 scope_key = (
                     normalized_input[CONF_SCOPE_ID]
@@ -318,18 +341,7 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=self._build_reconfigure_schema(entry.data),
-            description_placeholders={
-                "base_url_example": "https://example.firewalla.net",
-                **_api_calls_display_from_entry(entry),
-                "current_scan_interval_seconds": str(
-                    _current_scan_interval_seconds_from_entry(entry)
-                ),
-                "previous_scan_interval_seconds": str(
-                    _previous_scan_interval_seconds_from_entry(entry)
-                ),
-                "name": entry.title,
-            },
+            data_schema=self._build_reconfigure_schema(entry),
             errors=errors,
         )
 
@@ -481,11 +493,16 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
-    def _build_reconfigure_schema(self, entry_data: dict) -> vol.Schema:
+    def _build_reconfigure_schema(self, entry) -> vol.Schema:
         """Build the reconfigure schema."""
+        entry_data = entry.data
         default_api_limit = _api_daily_limit_from_mapping(entry_data)
+        usage_summary = _current_usage_display_from_entry(entry)
         return vol.Schema(
             {
+                vol.Optional(
+                    _CONF_CURRENT_USAGE_DISPLAY, default=usage_summary
+                ): selector({"text": {"read_only": True, "multiline": True}}),
                 vol.Optional(
                     CONF_NAME, default=entry_data.get(CONF_NAME, "Firewalla")
                 ): str,
@@ -524,6 +541,8 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         """Manage the integration options."""
         if user_input is not None:
+            user_input = dict(user_input)
+            user_input.pop(_CONF_CURRENT_USAGE_DISPLAY, None)
             updated_scan = _effective_scan_interval_from_mapping(
                 {
                     **self._config_entry.data,
@@ -554,11 +573,16 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                 DEFAULT_TRAFFIC_WINDOW_MINUTES,
             ),
         )
+        usage_summary = _current_usage_display_from_entry(self._config_entry)
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        _CONF_CURRENT_USAGE_DISPLAY,
+                        default=usage_summary,
+                    ): selector({"text": {"read_only": True, "multiline": True}}),
                     vol.Optional(
                         CONF_API_DAILY_REQUEST_LIMIT, default=current_limit
                     ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100000)),
@@ -569,13 +593,4 @@ class FirewallaOptionsFlow(config_entries.OptionsFlow):
                     ),
                 }
             ),
-            description_placeholders={
-                **_api_calls_display_from_entry(self._config_entry),
-                "current_scan_interval_seconds": str(
-                    _current_scan_interval_seconds_from_entry(self._config_entry)
-                ),
-                "previous_scan_interval_seconds": str(
-                    _previous_scan_interval_seconds_from_entry(self._config_entry)
-                ),
-            },
         )
