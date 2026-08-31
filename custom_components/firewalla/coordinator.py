@@ -801,7 +801,10 @@ class FirewallaTrendsCoordinator(DataUpdateCoordinator[dict[str, object]]):
                 query=_build_rule_query(self.scope_type, self.scope_id),
             )
             if success:
-                rules = payload if isinstance(payload, list) else []
+                if isinstance(payload, tuple) and len(payload) >= 1:
+                    rules = payload[0] if isinstance(payload[0], list) else []
+                elif isinstance(payload, list):
+                    rules = payload
                 capabilities["rules"] = True
             elif error:
                 endpoint_errors["rules"] = error

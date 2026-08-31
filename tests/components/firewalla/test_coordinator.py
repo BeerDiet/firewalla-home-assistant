@@ -413,7 +413,17 @@ class MockClient:
         limit: int = 500,
         cursor: str | None = None,
     ) -> tuple[list[dict[str, object]], str | None]:
-        return [], None
+        return [
+            {
+                "id": "rule-1",
+                "action": "block",
+                "status": "active",
+                "gid": "gid-1",
+                "notes": "Firewalla Home Assistant internet block: Laptop",
+                "target": {"type": "internet"},
+                "scope": {"type": "device", "value": "dev-1"},
+            }
+        ], None
 
     async def async_get_grouped_flows(
         self,
@@ -491,7 +501,10 @@ async def test_coordinator_update_success_global_scope(hass) -> None:
     assert result["bandwidth"]["flow_count"] == 2
     assert result["capabilities"]["top_stats"] is True
     assert result["capabilities"]["top_talkers"] is True
+    assert result["capabilities"]["rules"] is True
     assert result["scope"]["type"] == SCOPE_GLOBAL
+    assert len(result["rules"]) == 1
+    assert result["rules"][0]["id"] == "rule-1"
 
 
 @pytest.mark.asyncio
