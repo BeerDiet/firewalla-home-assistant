@@ -511,7 +511,7 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_BASE_URL,
                     default=user_input.get(
-                        CONF_BASE_URL, "https://dn-knzvvk.firewalla.net"
+                        CONF_BASE_URL, "https://my-msp.firewalla.net"
                     ),
                 ): str,
                 vol.Required(CONF_TOKEN, default=user_input.get(CONF_TOKEN, "")): str,
@@ -556,7 +556,7 @@ class FirewallaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_BASE_URL,
                     default=entry_data.get(
-                        CONF_BASE_URL, "https://dn-knzvvk.firewalla.net"
+                        CONF_BASE_URL, "https://my-msp.firewalla.net"
                     ),
                 ): str,
                 vol.Required(CONF_TOKEN, default=entry_data.get(CONF_TOKEN, "")): str,

@@ -694,7 +694,7 @@ def test_build_schema_uses_defaults() -> None:
     schema = flow._build_schema(None)
     serialized = schema({})
 
-    assert serialized[CONF_BASE_URL] == "https://dn-knzvvk.firewalla.net"
+    assert serialized[CONF_BASE_URL] == "https://my-msp.firewalla.net"
     assert serialized[CONF_SCOPE_TYPE] == SCOPE_GLOBAL
     assert serialized[CONF_API_DAILY_REQUEST_LIMIT] == DEFAULT_API_DAILY_REQUEST_LIMIT
     assert serialized[CONF_TRAFFIC_WINDOW_MINUTES] == DEFAULT_TRAFFIC_WINDOW_MINUTES
